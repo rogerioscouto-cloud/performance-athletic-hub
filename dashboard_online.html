@@ -6332,7 +6332,7 @@ function calcPrevisao() {
           p: prevDaniels,
           tipo: 'lthr',
           confianca: 'boa',
-          detalhe: `Pace limiar: ${ultimo.pace}/km → pace maratona estimado: ${segParaPaceStr(Math.round(paceMaratonaSeg))}/km (método Daniels ×1.075)`
+          detalhe: `Pace limiar: ${ultimo.pace}/km → pace maratona estimado: ${paceStr(Math.round(paceMaratonaSeg))}/km (método Daniels ×1.075)`
         });
       }
     } else if (ultimo.bpm) {
