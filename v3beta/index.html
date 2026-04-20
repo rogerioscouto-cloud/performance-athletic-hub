@@ -233,6 +233,38 @@ body{
 
 /* ══ FORM ══ */
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+
+/* [M10] Chip "Dia da semana" ao lado da data — substitui o input readonly
+   que criava falsa affordance. O chip é derivado automaticamente, não
+   editável por design. */
+.dia-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin-top: 4px;
+  background: var(--gbg);
+  border: 1px solid rgba(34,197,94,.25);
+  border-radius: 3px;
+  color: var(--green);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  user-select: none;
+}
+.dia-chip::before {
+  content: "●";
+  font-size: 7px;
+  opacity: 0.7;
+}
+.dia-chip.dia-auto {
+  background: var(--panel);
+  border-color: var(--b2);
+  color: var(--muted);
+}
+.dia-chip.dia-auto::before { content: "—"; }
 .form-grid.full{grid-template-columns:1fr}
 .form-grid.tri{grid-template-columns:1fr 1fr 1fr}
 .fgroup label{
@@ -300,6 +332,40 @@ input[type=range]::-webkit-slider-thumb{
 .btn-primary:active{transform:scale(.97)}
 .btn-ghost{background:transparent;border:1px solid var(--b2);color:var(--muted)}
 .btn-danger{background:var(--rbg);border:1px solid rgba(239,68,68,.3);color:var(--red)}
+
+/* [M5] Bloco "Zona de perigo" — contém ações irreversíveis, visualmente
+   segregadas para evitar que o usuário acione algo destrutivo por inércia
+   de clique em meio aos btn-ghost cinzas. Borda vermelha sutil, header
+   explícito, padding confortável, separação visual dos demais blocos. */
+.danger-zone {
+  border: 1px solid rgba(239,68,68,.25);
+  border-radius: 6px;
+  padding: 14px 16px 16px;
+  margin-top: 18px;
+  background: rgba(239,68,68,.03);
+}
+.danger-zone-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.danger-zone-title::before {
+  content: "⚠";
+  font-size: 12px;
+}
+.danger-zone-hint {
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
 
 /* ══ BADGE ══ */
 .badge{
@@ -963,9 +1029,9 @@ input[type=range]::-webkit-slider-thumb{
               <option value="7">Semana 7</option><option value="8">Semana 8</option>
             </select>
           </div>
-          <div class="fgroup"><label>Dia da semana</label>
-            <input type="text" id="p-dia" readonly
-              style="background:var(--panel);color:var(--accent);font-weight:700;cursor:default;letter-spacing:1px" placeholder="Auto">
+          <div class="fgroup"><label>Dia da semana <span style="font-size:9px;color:var(--muted);font-weight:400;letter-spacing:.5px;text-transform:none">· automático pela data</span></label>
+            <input type="hidden" id="p-dia">
+            <span class="dia-chip dia-auto" id="p-dia-chip" aria-live="polite">Auto</span>
           </div>
         </div>
         <div class="fgroup" style="margin-bottom:12px">
@@ -1034,9 +1100,9 @@ input[type=range]::-webkit-slider-thumb{
           </div>
         </div>
         <div class="form-grid">
-          <div class="fgroup"><label>Dia da semana</label>
-            <input type="text" id="l-dia" readonly
-              style="background:var(--panel);color:var(--accent);font-weight:700;cursor:default;letter-spacing:1px" placeholder="Auto">
+          <div class="fgroup"><label>Dia da semana <span style="font-size:9px;color:var(--muted);font-weight:400;letter-spacing:.5px;text-transform:none">· automático pela data</span></label>
+            <input type="hidden" id="l-dia">
+            <span class="dia-chip dia-auto" id="l-dia-chip" aria-live="polite">Auto</span>
           </div>
           <input type="hidden" id="l-id-edicao" value="">
           <div class="fgroup"><label>Treino realizado</label><input type="text" id="l-treino" placeholder="ex: Rodagem Z2..."></div>
@@ -1144,9 +1210,9 @@ input[type=range]::-webkit-slider-thumb{
               <option value="7">Semana 7</option><option value="8">Semana 8</option>
             </select>
           </div>
-          <div class="fgroup"><label>Dia da semana</label>
-            <input type="text" id="f-dia" readonly
-              style="background:var(--panel);color:var(--accent);font-weight:700;cursor:default;letter-spacing:1px" placeholder="Auto">
+          <div class="fgroup"><label>Dia da semana <span style="font-size:9px;color:var(--muted);font-weight:400;letter-spacing:.5px;text-transform:none">· automático pela data</span></label>
+            <input type="hidden" id="f-dia">
+            <span class="dia-chip dia-auto" id="f-dia-chip" aria-live="polite">Auto</span>
           </div>
         </div>
         <div class="form-grid">
@@ -1562,16 +1628,23 @@ input[type=range]::-webkit-slider-thumb{
      TAB 9 — CONFIGURAÇÕES
 ══════════════════════════════════════ -->
 <div class="page" id="tab-9">
+  <!-- [M5] Config reorganizada em 4 blocos semânticos com separação visual.
+       Antes: tudo misturado em 2 colunas sem agrupamento claro.
+       Agora: Perfil · Dados&Backup · Ferramentas de plano · Zona de perigo.
+       Zona de perigo destacada com borda vermelha e separação vertical. -->
+
   <div class="two-col" style="align-items:start">
 
-    <!-- ESQUERDA: Perfil e parâmetros -->
+    <!-- ══════════════════════════════════════════════════════════
+         BLOCO 1 — PERFIL
+         Dados pessoais + parâmetros fisiológicos em uma coluna só
+         ══════════════════════════════════════════════════════════ -->
     <div>
-      <div class="stitle">Perfil do atleta</div>
+      <div class="stitle">Bloco 1 · Perfil do atleta <span>quem você é</span></div>
       <div class="card">
-        <div class="card-title">Dados pessoais <span>local · login futuro</span></div>
+        <div class="card-title">Dados pessoais</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.6">
-          Seus dados ficam salvos localmente. Em uma versão futura, o login permitirá
-          sincronização entre dispositivos e acesso do treinador.
+          Identificação usada no app e na exportação de contexto para o Coach.
         </div>
         <div class="form-grid">
           <div class="fgroup"><label>Nome completo</label>
@@ -1599,9 +1672,14 @@ input[type=range]::-webkit-slider-thumb{
         <div id="prf-saved" style="display:none;font-size:10px;color:var(--green);margin-top:6px">✓ Dados salvos com sucesso</div>
       </div>
 
-      <div class="stitle" style="margin-top:4px">Parâmetros do plano</div>
+      <div class="stitle" style="margin-top:10px">Parâmetros fisiológicos <span>alimentam a status engine</span></div>
       <div class="card">
         <div class="card-title">Ajustes de monitoramento</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.5">
+          Valores de referência usados para calcular o status GREEN/YELLOW/RED
+          na prontidão diária. Altere apenas se houver mudança sustentada
+          (novo macrociclo, mudança de FC basal medida).
+        </div>
         <div class="form-grid">
           <div class="fgroup"><label>FC repouso base (bpm)</label>
             <input type="number" id="cfg-fc" placeholder="60" min="30" max="80" oninput="salvarCfg()"></div>
@@ -1617,39 +1695,22 @@ input[type=range]::-webkit-slider-thumb{
       </div>
     </div>
 
-    <!-- DIREITA: Dados, backup, ferramentas -->
+    <!-- ══════════════════════════════════════════════════════════
+         COLUNA DIREITA — 3 BLOCOS EMPILHADOS
+         Bloco 2 · Dados & Backup   (exportação + Coach)
+         Bloco 3 · Ferramentas      (plano + reagendamentos + diag)
+         Bloco 4 · Zona de perigo   (ações irreversíveis)
+         ══════════════════════════════════════════════════════════ -->
     <div>
-      <div class="stitle">Plano de treinos</div>
-      <div class="card">
-        <div class="card-title">Upload do plano <span>aba "Plano de Treinos"</span></div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:12px">
-          Envie a planilha <strong style="color:var(--text)">.xlsx</strong> do treinador para atualizar
-          ou adicionar semanas ao plano. Semanas existentes podem ser substituídas
-          (inicia novo ciclo) ou completadas com semanas novas.
-        </div>
-        <label style="display:block;cursor:pointer">
-          <div class="card" style="border:2px dashed var(--b2);text-align:center;padding:20px;background:var(--bg)">
-            <div style="font-size:28px;margin-bottom:6px">📋</div>
-            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">Arraste ou clique para selecionar</div>
-            <div style="font-size:10px;color:var(--muted)">Modelo .xlsx Painel PRO++ · Aba "Plano de Treinos"</div>
-          </div>
-          <input type="file" accept=".xlsx,.xls" style="display:none"
-            onchange="importarPlano(this.files[0]); goTab(4, document.querySelectorAll('.tab')[4])">
-        </label>
-        <div style="margin-top:10px">
-          <button class="btn btn-ghost btn-full" onclick="goTab(4, document.querySelectorAll('.tab')[4])">
-            → Ver planejamento completo
-          </button>
-        </div>
-      </div>
 
-      <div class="stitle" style="margin-top:4px">Coach IA — Claude.ai</div>
+      <!-- ═══ BLOCO 2 · DADOS & BACKUP ═══ -->
+      <div class="stitle">Bloco 2 · Dados & Backup <span>exportar, importar, integrar</span></div>
       <div class="card">
-        <div class="card-title">Exportar contexto para o Coach <span>Claude.ai Project</span></div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:14px">
+        <div class="card-title">Exportar para Coach IA <span>Claude.ai Project</span></div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:14px">
           Gera um bloco de texto com <strong style="color:var(--text)">todos os seus dados de treinamento</strong>
-          formatados para o Coach. Cole no Claude.ai (Project Sub-3) para obter análises e prescrições
-          personalizadas com memória completa do seu plano.
+          formatados para o Coach. Cole no Claude.ai (Project Sub-3) para análises e prescrições
+          personalizadas com memória completa do plano.
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:12px">
           <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:8px;text-align:center">
@@ -1665,7 +1726,7 @@ input[type=range]::-webkit-slider-thumb{
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:var(--yellow)" id="ctx-vo2">—</div>
           </div>
         </div>
-        <button class="btn btn-primary btn-full" onclick="exportarContextoCoach()" style="margin-bottom:8px">
+        <button class="btn btn-primary btn-full" onclick="exportarContextoCoach()" style="margin-bottom:6px">
           📋 Copiar contexto para o Coach
         </button>
         <div id="ctx-feedback" style="display:none;margin-top:8px;padding:10px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:4px;font-size:11px;color:var(--green);text-align:center">
@@ -1673,9 +1734,8 @@ input[type=range]::-webkit-slider-thumb{
         </div>
       </div>
 
-      <div class="stitle" style="margin-top:4px">Exportar dados</div>
       <div class="card">
-        <div class="card-title">Relatório CSV e Backup</div>
+        <div class="card-title">Relatório CSV e backup JSON</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
           <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:10px">
             <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Treinos</div>
@@ -1709,18 +1769,53 @@ input[type=range]::-webkit-slider-thumb{
         </div>
       </div>
 
-      <div class="stitle" style="margin-top:4px">Ferramentas de planejamento</div>
+      <!-- ═══ BLOCO 3 · FERRAMENTAS DE PLANO ═══ -->
+      <div class="stitle" style="margin-top:10px">Bloco 3 · Ferramentas de plano <span>upload · cascata · diagnóstico</span></div>
+      <div class="card">
+        <div class="card-title">Upload de plano</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:12px">
+          Envie a planilha <strong style="color:var(--text)">.xlsx</strong> do treinador para atualizar
+          ou adicionar semanas ao plano. Semanas existentes podem ser substituídas
+          (inicia novo ciclo) ou completadas com semanas novas.
+        </div>
+        <label style="display:block;cursor:pointer">
+          <div class="card" style="border:2px dashed var(--b2);text-align:center;padding:20px;background:var(--bg);margin-bottom:0">
+            <div style="font-size:28px;margin-bottom:6px">📋</div>
+            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">Arraste ou clique para selecionar</div>
+            <div style="font-size:10px;color:var(--muted)">Modelo .xlsx Painel PRO++ · Aba "Plano de Treinos"</div>
+          </div>
+          <input type="file" accept=".xlsx,.xls" style="display:none"
+            onchange="importarPlano(this.files[0]); goTab(4, document.querySelectorAll('.tab')[4])">
+        </label>
+        <div style="margin-top:10px">
+          <button class="btn btn-ghost btn-full" onclick="goTab(4, document.querySelectorAll('.tab')[4])">
+            → Ver planejamento completo
+          </button>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title">Reagendamentos e cascata</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">
+          Mantém a lógica de detecção de desvio alinhada com o plano atual.
+          Use se notar cascatas "presas" ou reagendamentos antigos poluindo a agenda.
+        </div>
         <button class="btn btn-ghost btn-full" onclick="abrirRevisaoReagend()" style="margin-bottom:6px">🗂 Revisar reagendamentos</button>
         <button class="btn btn-ghost btn-full" onclick="limparReagendObsoletos()" style="margin-bottom:6px">🧹 Limpar obsoletos automaticamente</button>
         <button class="btn btn-ghost btn-full" onclick="recalcularCascata()" style="margin-bottom:6px">🔁 Recalcular cascata atual</button>
-        <button class="btn btn-danger btn-full" onclick="limparReagend()" style="margin-bottom:6px;font-size:10px">🗑 Apagar TODOS os reagendamentos</button>
-        <button class="btn btn-ghost btn-full" onclick="mostrarDiagLS()" style="margin-bottom:6px">🔍 Diagnóstico de dados</button>
+        <button class="btn btn-ghost btn-full" onclick="mostrarDiagLS()" style="margin-bottom:6px">🔍 Diagnóstico de dados (LS)</button>
         <div id="diagLS" style="display:none;margin-top:10px;font-size:10px;font-family:monospace;color:var(--muted);background:var(--bg);padding:10px;border-radius:4px;word-break:break-all;max-height:300px;overflow-y:auto"></div>
-        <div style="border-top:1px solid var(--b1);margin-top:12px;padding-top:12px">
-          <button class="btn btn-danger btn-full" onclick="confirmarReset()">⚠ Apagar todos os dados</button>
+      </div>
+
+      <!-- ═══ BLOCO 4 · ZONA DE PERIGO ═══ -->
+      <div class="danger-zone">
+        <div class="danger-zone-title">Bloco 4 · Zona de perigo</div>
+        <div class="danger-zone-hint">
+          Ações <strong style="color:var(--text)">irreversíveis</strong>. Faça um backup JSON antes (Bloco 2)
+          para poder restaurar caso se arrependa. Cada ação pede confirmação antes de executar.
         </div>
+        <button class="btn btn-danger btn-full" onclick="limparReagend()" style="margin-bottom:6px;font-size:10px">🗑 Apagar TODOS os reagendamentos</button>
+        <button class="btn btn-danger btn-full" onclick="confirmarReset()">⚠ Apagar todos os dados</button>
       </div>
     </div>
 
@@ -3913,6 +4008,56 @@ function getTreinoHoje() {
   return p;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// [C5] Roteamento contextual do card "Treino de hoje"
+// ═══════════════════════════════════════════════════════════════
+// Antes: clique no card sempre ia para Planejamento (tab 4) — contra-intuitivo,
+// o desejo natural após ver "hoje é Rodagem 10km" é registrar, não consultar.
+//
+// Agora: a ação primária depende do estado do treino:
+//   - NÃO realizado + é força  → abre tab Força (3), form aberto, data/semana pré-preenchidas
+//   - NÃO realizado + é corrida → abre tab Corrida (2), form aberto, data/semana pré-preenchidas,
+//                                  nome do treino pré-preenchido
+//   - REALIZADO + é força   → abre tab Força (3), scroll até o registro de hoje
+//   - REALIZADO + é corrida → abre tab Corrida (2), scroll até o registro de hoje
+//
+// "Ver plano" permanece como link secundário textual no canto do card.
+function rotearTreinoHoje(config) {
+  const { isForca, realizado, treino, hoje } = config;
+  const TAB_CORRIDA = 2, TAB_FORCA = 3;
+  const tabAlvo = isForca ? TAB_FORCA : TAB_CORRIDA;
+  const tabEl = document.querySelectorAll('.tab')[tabAlvo];
+  goTab(tabAlvo, tabEl);
+
+  if (realizado) {
+    // Caminho "ver detalhes do registro": apenas abre a aba certa.
+    // O histórico já mostra o registro de hoje visível no topo da lista.
+    return;
+  }
+
+  // Caminho "registrar agora": abrir form + pré-preencher.
+  setTimeout(() => {
+    const pfx = isForca ? 'f' : 'l';
+    const formId = isForca ? 'forcaForm' : 'logForm';
+    const formEl = document.getElementById(formId);
+    const toggleBtn = document.querySelector(`[onclick*="${formId}"]`);
+    if (formEl && formEl.style.display === 'none') {
+      formEl.style.display = 'block';
+      if (toggleBtn) toggleBtn.classList.add('aberto');
+    }
+    // Pré-preencher data e sincronizar dia+semana
+    const dataEl = document.getElementById(pfx + '-data');
+    if (dataEl) { dataEl.value = hoje; sincronizarData(pfx); }
+    // Pré-preencher nome do treino (só na corrida — força usa select de templates)
+    if (!isForca && treino) {
+      const treinoEl = document.getElementById('l-treino');
+      if (treinoEl && !treinoEl.value) treinoEl.value = treino;
+    }
+    // Scroll até o form
+    if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 100);
+}
+
 function renderTreinoHoje(containerId) {
   const el = document.getElementById(containerId);
   if (!el) return;
@@ -3968,10 +4113,25 @@ function renderTreinoHoje(containerId) {
     : `<span style="font-size:10px;background:rgba(0,212,255,.1);color:var(--accent);padding:2px 8px;border-radius:3px;font-weight:700;animation:pulse 2s infinite">● Hoje</span>`;
 
   el.style.display = 'block';
+  // [C5] Card primário: clique roteia contextualmente (registrar ou ver registro)
+  // "Ver plano" vira link secundário explícito no canto, não ação primária do card.
+  const configRoteamento = {
+    isForca: isForca,
+    realizado: !!realizado,
+    treino: p.treino || '',
+    hoje: hoje
+  };
+  // Serializar config para passar via onclick (JSON escaped)
+  const cfgJson = JSON.stringify(configRoteamento).replace(/"/g, '&quot;');
+  const ctaLabel = realizado
+    ? (isForca ? 'Ver sessão →' : 'Ver treino →')
+    : (isForca ? 'Registrar força →' : 'Registrar treino →');
+
   el.innerHTML = `
     <div style="background:${bgCor};border:1px solid ${bdCor};border-radius:8px;
       padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer"
-      onclick="goTab(4, document.querySelectorAll('.tab')[4])">
+      onclick="rotearTreinoHoje(JSON.parse(this.getAttribute('data-cfg')))"
+      data-cfg="${cfgJson}">
       <div style="font-size:36px;flex-shrink:0">${icone}</div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
@@ -3988,7 +4148,11 @@ function renderTreinoHoje(containerId) {
           ${p.objetivo?`<span>${p.objetivo}</span>`:''}
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);flex-shrink:0;white-space:nowrap">Ver plano →</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+        <div style="font-size:11px;color:var(--accent);white-space:nowrap;font-weight:600">${ctaLabel}</div>
+        <a onclick="event.stopPropagation();goTab(4,document.querySelectorAll('.tab')[4])"
+           style="font-size:9px;color:var(--muted);white-space:nowrap;text-decoration:underline;cursor:pointer">ver no plano</a>
+      </div>
     </div>`;
 }
 
@@ -7616,9 +7780,22 @@ function sincronizarData(prefixo) {
   const dia = dataToDia(dataStr);
   const sem = dataToPlanSemana(dataStr);
 
-  // Dia da semana (p e l têm campo de dia)
+  // Dia da semana (p e l têm campo de dia) — mantido como input hidden
+  // para compatibilidade com os saves (leem .value diretamente)
   const diaEl = document.getElementById(prefixo + '-dia');
   if (diaEl) diaEl.value = dia;
+
+  // [M10] Atualizar também o chip visual (substitui a falsa affordance do input readonly)
+  const chipEl = document.getElementById(prefixo + '-dia-chip');
+  if (chipEl) {
+    if (dia) {
+      chipEl.textContent = dia;
+      chipEl.classList.remove('dia-auto');
+    } else {
+      chipEl.textContent = 'Auto';
+      chipEl.classList.add('dia-auto');
+    }
+  }
 
   // Semana do plano
   setSemSelect(prefixo + '-sem', sem);
