@@ -4028,18 +4028,20 @@ function rotearTreinoHoje(config) {
   // Antes, o 'hoje' vinha embutido no data-cfg do card — se o usuário alterasse
   // a data em outro formulário antes de clicar, o card pré-preenchia a data errada.
   const hoje = dataHoje();
+
+  if (realizado) {
+    // [C5 Opção B] Treino já realizado: abrir modal de detalhes da sessão.
+    // Não leva o usuário a um formulário — ele quer ver o que fez, não registrar
+    // de novo. Comportamento alinhado com a auditoria consolidada (C5).
+    abrirModalSessaoRealizada({ isForca, hoje });
+    return;
+  }
+
+  // Caminho "registrar agora": abrir tab correspondente, form + pré-preencher.
   const TAB_CORRIDA = 2, TAB_FORCA = 3;
   const tabAlvo = isForca ? TAB_FORCA : TAB_CORRIDA;
   const tabEl = document.querySelectorAll('.tab')[tabAlvo];
   goTab(tabAlvo, tabEl);
-
-  if (realizado) {
-    // Caminho "ver detalhes do registro": apenas abre a aba certa.
-    // O histórico já mostra o registro de hoje visível no topo da lista.
-    return;
-  }
-
-  // Caminho "registrar agora": abrir form + pré-preencher.
   setTimeout(() => {
     const pfx = isForca ? 'f' : 'l';
     const formId = isForca ? 'forcaForm' : 'logForm';
@@ -4060,6 +4062,174 @@ function rotearTreinoHoje(config) {
     // Scroll até o form
     if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, 100);
+}
+
+// [C5 Opção B] Modal de detalhes da sessão realizada.
+// Mostra tudo que foi registrado + comparação com o plano (quando aplicável).
+// Dois CTAs: editar registro (vai para a aba com form pré-preenchido) ou fechar.
+function abrirModalSessaoRealizada({ isForca, hoje }) {
+  const reg = isForca
+    ? getForca().find(f => (f.data||'').slice(0,10) === hoje)
+    : getLog().find(l => l.data === hoje && l.km > 0);
+  if (!reg) {
+    toast('Registro de hoje não encontrado · pode ter sido apagado recentemente. Recarregue a página.', true);
+    return;
+  }
+
+  const planoHoje = getTreinoHoje();
+  const dia = dataToDia(hoje);
+  const sem = dataToPlanSemana(hoje);
+
+  let corpo = '';
+  if (isForca) {
+    // ═══ CORPO DO MODAL — FORÇA ═══
+    const exercicios = reg.exercicios || [];
+    const kcal = reg.kcal || 0;
+    const fc = reg.fc || 0;
+    const rpe = reg.rpe ?? '—';
+    const duracao = reg.duracaoSeg ? segParaTempo(reg.duracaoSeg) : '—';
+
+    corpo = `
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.5">
+        <strong style="color:var(--text)">${reg.tipo || 'Sessão de força'}</strong> registrada em ${fmtData(hoje)} · ${dia} · S${sem}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Duração</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:var(--accent)">${duracao}</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">FC méd.</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:var(--text)">${fc > 0 ? fc + '<small style="font-size:10px;color:var(--muted);margin-left:2px">bpm</small>' : '—'}</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">RPE</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:var(--yellow)">${rpe}<small style="font-size:10px;color:var(--muted);margin-left:2px">/10</small></div>
+        </div>
+      </div>
+      ${kcal > 0 ? `<div style="font-size:11px;color:var(--muted);margin-bottom:14px">Calorias estimadas: <strong style="color:var(--text)">${kcal} kcal</strong></div>` : ''}
+      ${exercicios.length > 0 ? `
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Exercícios · ${exercicios.length}</div>
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:10px;max-height:220px;overflow-y:auto;margin-bottom:14px">
+          ${exercicios.map(ex => `
+            <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;font-size:11px;padding:5px 0;border-bottom:1px solid var(--b1)">
+              <div style="color:var(--text);font-weight:600">${ex.nome || '—'}</div>
+              <div style="color:var(--muted);text-align:center">${ex.series || '—'}×${ex.reps || '—'}</div>
+              <div style="color:var(--muted);text-align:center">${ex.carga ? ex.carga + 'kg' : '—'}</div>
+            </div>`).join('')}
+        </div>` : ''}
+      ${reg.notas ? `
+        <div style="background:rgba(0,212,255,.05);border-left:2px solid var(--accent);padding:10px 12px;margin-bottom:14px;font-size:11px;line-height:1.6;color:var(--text)">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Notas</div>
+          ${reg.notas}
+        </div>` : ''}
+    `;
+  } else {
+    // ═══ CORPO DO MODAL — CORRIDA ═══
+    const km = reg.km || 0;
+    const tempo = reg.tempoSeg ? segParaTempo(reg.tempoSeg) : '—';
+    const pace = reg.paceSeg ? segParaPace(reg.paceSeg) : '—';
+    const fc = reg.fc || 0;
+    const rpe = reg.rpe ?? '—';
+    const drift = reg.drift || 0;
+    const kcal = reg.kcal || 0;
+    const vo2 = reg.vo2 || 0;
+    const carga = reg.carga || 0;
+    const efic = reg.efic || 0;
+
+    // Comparação com plano (se houver treino planejado para hoje)
+    let comparacao = '';
+    if (planoHoje && planoHoje.km > 0) {
+      const kmDelta = km - planoHoje.km;
+      const kmPct = planoHoje.km > 0 ? Math.round((km / planoHoje.km) * 100) : 0;
+      const corDelta = Math.abs(kmDelta) < 1 ? 'var(--green)' : (kmDelta > 0 ? 'var(--yellow)' : 'var(--red)');
+      const sinalDelta = kmDelta >= 0 ? '+' : '';
+      comparacao = `
+        <div style="background:rgba(124,58,237,.05);border:1px solid rgba(124,58,237,.2);border-radius:4px;padding:10px 12px;margin-bottom:14px">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Vs. planejado</div>
+          <div style="display:flex;gap:18px;align-items:baseline;flex-wrap:wrap">
+            <div style="font-size:11px;color:var(--muted)">Plano: <strong style="color:var(--text);font-family:'JetBrains Mono',monospace">${planoHoje.km}km</strong> ${planoHoje.zona && planoHoje.zona !== '—' ? `· ${planoHoje.zona}` : ''}</div>
+            <div style="font-size:11px;color:${corDelta}">Delta: <strong style="font-family:'JetBrains Mono',monospace">${sinalDelta}${kmDelta.toFixed(1)}km</strong> (${kmPct}%)</div>
+          </div>
+        </div>`;
+    }
+
+    corpo = `
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.5">
+        <strong style="color:var(--text)">${reg.treino || 'Corrida'}</strong> registrada em ${fmtData(hoje)} · ${dia} · S${sem}
+      </div>
+      ${comparacao}
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Distância</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;color:var(--accent)">${km.toString().replace('.',',')}<small style="font-size:10px;color:var(--muted);margin-left:2px">km</small></div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Tempo</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;color:var(--text)">${tempo}</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Pace</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;color:var(--green)">${pace}<small style="font-size:10px;color:var(--muted);margin-left:2px">/km</small></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">FC méd.</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--text)">${fc > 0 ? fc : '—'}<small style="font-size:8px;color:var(--muted);margin-left:1px">bpm</small></div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">RPE</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--yellow)">${rpe}</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Drift</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:${drift > 5 ? 'var(--red)' : (drift > 3 ? 'var(--yellow)' : 'var(--green)')}">${drift > 0 ? drift.toFixed(1) + '%' : '—'}</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Carga</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--acc2)">${carga > 0 ? carga.toFixed(0) : '—'}<small style="font-size:8px;color:var(--muted);margin-left:1px">UA</small></div>
+        </div>
+      </div>
+      ${(vo2 > 0 || efic > 0 || kcal > 0) ? `
+        <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:14px;padding:8px 12px;background:var(--bg);border-radius:4px">
+          ${vo2 > 0 ? `<span>VO₂: <strong style="color:var(--text);font-family:'JetBrains Mono',monospace">${vo2}</strong></span>` : ''}
+          ${efic > 0 ? `<span>Efic.: <strong style="color:var(--text);font-family:'JetBrains Mono',monospace">${efic.toFixed(3)}</strong></span>` : ''}
+          ${kcal > 0 ? `<span>Kcal: <strong style="color:var(--text);font-family:'JetBrains Mono',monospace">${kcal}</strong></span>` : ''}
+        </div>` : ''}
+      ${reg.notas ? `
+        <div style="background:rgba(0,212,255,.05);border-left:2px solid var(--accent);padding:10px 12px;margin-bottom:14px;font-size:11px;line-height:1.6;color:var(--text)">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Notas</div>
+          ${reg.notas}
+        </div>` : ''}
+    `;
+  }
+
+  // CTAs do modal — botão primário "Editar registro" vai para a aba com form pré-preenchido
+  const ctaEditarLabel = isForca ? 'Editar sessão de força' : 'Editar treino';
+  corpo += `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+      <button class="btn btn-ghost" onclick="closeModal()">Fechar</button>
+      <button class="btn btn-primary" onclick="closeModal();irParaRegistroParaEdicao(${isForca ? 'true' : 'false'}, '${hoje}')">${ctaEditarLabel}</button>
+    </div>`;
+
+  document.getElementById('modalTitle').textContent = (isForca ? '💪 ' : '🏃 ') + 'Sessão de hoje';
+  document.getElementById('modalBody').innerHTML = corpo;
+  openModal();
+}
+
+// Função de apoio para o CTA "Editar registro" do modal de sessão realizada
+function irParaRegistroParaEdicao(isForca, dataStr) {
+  const TAB_CORRIDA = 2, TAB_FORCA = 3;
+  const tabAlvo = isForca ? TAB_FORCA : TAB_CORRIDA;
+  const tabEl = document.querySelectorAll('.tab')[tabAlvo];
+  goTab(tabAlvo, tabEl);
+  // Scroll até o histórico onde o registro aparece
+  setTimeout(() => {
+    const listaId = isForca ? 'forcaList' : 'logList';
+    const listaEl = document.getElementById(listaId);
+    if (listaEl) listaEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 150);
 }
 
 function renderTreinoHoje(containerId) {
