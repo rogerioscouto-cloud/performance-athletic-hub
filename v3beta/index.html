@@ -4023,7 +4023,11 @@ function getTreinoHoje() {
 //
 // "Ver plano" permanece como link secundário textual no canto do card.
 function rotearTreinoHoje(config) {
-  const { isForca, realizado, treino, hoje } = config;
+  const { isForca, realizado, treino } = config;
+  // [C5 fix] Sempre calcular "hoje" no momento do clique, não no render.
+  // Antes, o 'hoje' vinha embutido no data-cfg do card — se o usuário alterasse
+  // a data em outro formulário antes de clicar, o card pré-preenchia a data errada.
+  const hoje = dataHoje();
   const TAB_CORRIDA = 2, TAB_FORCA = 3;
   const tabAlvo = isForca ? TAB_FORCA : TAB_CORRIDA;
   const tabEl = document.querySelectorAll('.tab')[tabAlvo];
@@ -4045,7 +4049,7 @@ function rotearTreinoHoje(config) {
       formEl.style.display = 'block';
       if (toggleBtn) toggleBtn.classList.add('aberto');
     }
-    // Pré-preencher data e sincronizar dia+semana
+    // Pré-preencher data (sempre a data real de hoje) e sincronizar dia+semana
     const dataEl = document.getElementById(pfx + '-data');
     if (dataEl) { dataEl.value = hoje; sincronizarData(pfx); }
     // Pré-preencher nome do treino (só na corrida — força usa select de templates)
@@ -4115,11 +4119,12 @@ function renderTreinoHoje(containerId) {
   el.style.display = 'block';
   // [C5] Card primário: clique roteia contextualmente (registrar ou ver registro)
   // "Ver plano" vira link secundário explícito no canto, não ação primária do card.
+  // Nota: 'hoje' NÃO vai no config — o helper sempre recalcula no momento do clique
+  // para refletir a data real, independente do que o usuário esteja fazendo em outros forms.
   const configRoteamento = {
     isForca: isForca,
     realizado: !!realizado,
-    treino: p.treino || '',
-    hoje: hoje
+    treino: p.treino || ''
   };
   // Serializar config para passar via onclick (JSON escaped)
   const cfgJson = JSON.stringify(configRoteamento).replace(/"/g, '&quot;');
