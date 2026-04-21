@@ -6362,17 +6362,19 @@ function calcPrevisao() {
     const cor = r.p <= 180 ? 'var(--green)' : r.p <= 195 ? 'var(--yellow)' : 'var(--red)';
     const badge = r.p <= 180 ? 'Sub-3 ✓' : r.p <= 195 ? 'Próximo' : 'Acima da meta';
     const bgBadge = r.p <= 180 ? 'rgba(34,197,94,.15)' : r.p <= 195 ? 'rgba(245,158,11,.15)' : 'rgba(239,68,68,.15)';
+    // Pace estimado para maratona a partir do tempo previsto
+    const paceMarMin = r.p / 42.195; // min/km
+    const paceMarSeg = Math.round(paceMarMin * 60);
+    const paceMarStr = paceStr(paceMarSeg);
     return `
       <div style="background:var(--card);border:1px solid var(--b1);border-radius:6px;padding:12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div>
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">${r.f}</div>
-            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;color:${cor};line-height:1">${minToHMS(r.p)}</div>
-            ${r.detalhe ? `<div style="font-size:10px;color:var(--muted);margin-top:4px">${r.detalhe}</div>` : ''}
-          </div>
-          <span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:${bgBadge};color:${cor}">${badge}</span>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">${r.f}</div>
+          <span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:${bgBadge};color:${cor};flex-shrink:0;margin-left:8px">${badge}</span>
         </div>
-        <div style="font-size:9px;color:var(--muted);margin-top:6px">${r.detalhe ? r.detalhe : 'Confiança: ' + (r.confianca || 'estimativa')}</div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:32px;font-weight:800;color:${cor};line-height:1;margin-bottom:6px">${minToHMS(r.p)}</div>
+        ${r.detalhe ? `<div style="font-size:10px;color:var(--muted);margin-bottom:2px">${r.detalhe}</div>` : ''}
+        <div style="font-size:10px;color:var(--muted)">Pace maratona estimado: <strong style="color:var(--text)">${paceMarStr}/km</strong> · Confiança: ${r.confianca || 'estimativa'}</div>
       </div>`;
   };
 
