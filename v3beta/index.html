@@ -1556,7 +1556,72 @@ input[type=range]::-webkit-slider-thumb{
         </div>
       </div>
 
+      <!-- ══ Teste LTHR (Limiar Anaeróbio de FC) ══ -->
+      <div class="stitle" style="margin-top:4px">Teste LTHR <span>limiar anaeróbio · Friel</span></div>
+      <div id="lthr-ultimo-card">
+        <div class="card">
+          <div class="empty"><div class="empty-icon">❤️</div>
+            <div class="empty-txt">Nenhum teste registrado ainda</div></div>
+        </div>
+      </div>
+      <div style="margin-top:8px">
+        <canvas id="cLthrEvolucao" style="display:none" role="img"
+          aria-label="Gráfico de evolução do LTHR (limiar anaeróbio de frequência cardíaca) em bpm ao longo dos testes"></canvas>
+      </div>
 
+    </div>
+  </div>
+
+  <!-- ══ Formulário de registro de teste LTHR (toggle) ══ -->
+  <div style="margin-top:8px">
+    <button onclick="toggleForm('lthrForm',this)" class="form-toggle-btn">➕ Registrar teste LTHR</button>
+    <div id="lthrForm" style="display:none">
+      <div class="card">
+        <div class="card-title">Novo teste LTHR <span>limiar anaeróbio · método Friel</span></div>
+        <div class="form-grid">
+          <div class="fgroup"><label>Data</label>
+            <input type="date" id="lthr-data"></div>
+          <div class="fgroup"><label>LTHR (bpm)</label>
+            <input type="number" id="lthr-bpm" placeholder="ex: 167" min="100" max="220"
+              inputmode="numeric" oninput="calcZonasLTHR()"></div>
+        </div>
+        <!-- [melhoria b] aviso semântico para LTHR fora da faixa esperada -->
+        <div id="lthr-warn" style="display:none;background:var(--ybg);
+          border:1px solid rgba(245,158,11,.3);color:var(--yellow);
+          border-radius:4px;padding:8px 10px;margin-bottom:10px;
+          font-size:11px;line-height:1.5"></div>
+        <div class="form-grid">
+          <div class="fgroup"><label>Distância (km)</label>
+            <input type="number" id="lthr-km" placeholder="ex: 6" min="1" max="30" step="0.1"
+              inputmode="decimal"></div>
+          <div class="fgroup"><label>Duração (min)</label>
+            <input type="number" id="lthr-duracao" placeholder="ex: 35" min="5" max="120"
+              inputmode="numeric"></div>
+        </div>
+        <div class="form-grid">
+          <div class="fgroup"><label>Pace médio (min/km)</label>
+            <input type="text" id="lthr-pace" placeholder="ex: 5:50" inputmode="numeric"></div>
+          <div class="fgroup"><label>FC média (bpm)</label>
+            <input type="number" id="lthr-fcmedia" placeholder="ex: 162" min="100" max="220"
+              inputmode="numeric"></div>
+        </div>
+        <div class="form-grid full">
+          <div class="fgroup"><label>Observações</label>
+            <input type="text" id="lthr-notas" placeholder="Condições, hora, jejum..."></div>
+        </div>
+
+        <!-- Preview zonas -->
+        <div id="lthr-zonas-preview" style="display:none;margin:10px 0">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">
+            Zonas calculadas automaticamente (Friel) · referência lateral
+          </div>
+          <div id="lthr-zonas-grid" style="display:grid;gap:4px"></div>
+        </div>
+
+        <button class="btn btn-primary btn-full" onclick="salvarLTHR()" style="margin-top:8px">
+          Salvar teste LTHR
+        </button>
+      </div>
     </div>
   </div>
 
@@ -2046,7 +2111,7 @@ function goTab(n, el) {
   }
   if (n===5) renderCorpoTab();
   if (n===6) renderAnalise();
-  if (n===7) { calcPrevisao(); atualizarContagemBackup(); atualizarContadoresCtx();
+  if (n===7) { calcPrevisao(); atualizarContagemBackup(); atualizarContadoresCtx(); renderLTHR();
   } else if (n===8) { renderTenisTab();
     const set = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
     set('exp-log-count',   getLog().length);
@@ -6672,6 +6737,51 @@ function calcPrevisao() {
 
   // Separar provas de estimativas
   const provas     = res.filter(r => r.tipo === 'prova');
+  // ── 4. Estimativa via LTHR ────────────────────────────────────
+  // Decisões aplicadas (Rogério · abril/2026):
+  //   - Fator Daniels 1.08 (item f): mais realista p/ amador Sub-3 que 1.075.
+  //   - Badge "Confiança" distinto visual para "boa" (via pace limiar, top)
+  //     vs. "estimativa" (via VO2máx derivado, mais aproximativo) — item i.
+  const lthrLst = getLTHR();
+  if (lthrLst.length > 0) {
+    const ultimo = lthrLst[lthrLst.length - 1];
+    if (ultimo.pace) {
+      // Método Daniels: pace de maratona ≈ pace de limiar × fator
+      // Fator 1.08 para Sub-3 amador experiente — literatura de referência.
+      const partes = ultimo.pace.split(':');
+      const paceSeg = parseInt(partes[0]) * 60 + parseInt(partes[1] || 0);
+      if (paceSeg > 0) {
+        const fatorDaniels = 1.08;
+        const paceMaratonaSeg = paceSeg * fatorDaniels;
+        const prevDaniels = (paceMaratonaSeg * 42.195) / 60;
+        res.push({
+          f: `LTHR ${ultimo.bpm}bpm · pace limiar ${ultimo.pace}/km (${fmtData(ultimo.data)})`,
+          p: prevDaniels,
+          tipo: 'lthr',
+          confianca: 'boa',
+          detalhe: `Pace limiar: ${ultimo.pace}/km → pace maratona estimado: ${paceStr(Math.round(paceMaratonaSeg))}/km (método Daniels ×1.08)`
+        });
+      }
+    } else if (ultimo.bpm) {
+      // Sem pace do teste — usar VO₂máx derivado do LTHR (fallback aproximativo)
+      // LTHR ≈ 87.5% FC máx → FC máx estimada
+      const fcMax = Math.round(ultimo.bpm / 0.875);
+      const vo2EstLTHR = 15 * (fcMax / 60); // fórmula de Uth simplificada
+      if (vo2EstLTHR > 0) {
+        // Daniels vDot para maratona
+        const vdot = vo2EstLTHR;
+        const prevMin = 42.195 / (29.54 + 5.000663 * vdot - 0.007546 * vdot * vdot) * 1000 / 60;
+        res.push({
+          f: `LTHR ${ultimo.bpm}bpm (estimativa via FC) (${fmtData(ultimo.data)})`,
+          p: prevMin,
+          tipo: 'lthr',
+          confianca: 'estimativa',
+          detalhe: `FC limiar ${ultimo.bpm}bpm → VO₂máx estimado ${vo2EstLTHR.toFixed(1)} ml/kg/min`
+        });
+      }
+    }
+  }
+
   const estimativas= res.filter(r => r.tipo !== 'prova');
 
   const renderCard = (r) => {
@@ -6688,7 +6798,14 @@ function calcPrevisao() {
           </div>
           <span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:${bgBadge};color:${cor}">${badge}</span>
         </div>
-        <div style="font-size:9px;color:var(--muted);margin-top:6px">Confiança: ${r.confianca}</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:6px">
+          Confiança: <span style="font-weight:700;padding:1px 6px;border-radius:2px;letter-spacing:.5px;
+            ${r.confianca === 'boa'
+              ? 'background:rgba(34,197,94,.15);color:var(--green)'
+              : r.confianca === 'prova'
+                ? 'background:rgba(0,212,255,.15);color:var(--accent)'
+                : 'background:rgba(245,158,11,.12);color:var(--yellow)'}">${r.confianca}</span>
+        </div>
       </div>`;
   };
 
@@ -8002,6 +8119,7 @@ function sincronizarData(prefixo) {
     ['v3_templates_forca',  'v3beta_templates_forca'],
     ['v3_tenis',            'v3beta_tenis'],
     ['v3_perfil',           'v3beta_perfil'],
+    ['v3_lthr',             'v3beta_lthr'],
   ];
 
   let copiadas = 0;
@@ -8229,6 +8347,7 @@ const LS_TO_FB = {
   'v3beta_ciclo_atual':    'ciclo_atual',
   'v3beta_historico_planos': 'historico_planos',
   'v3beta_templates_forca':  'templates_forca',
+  'v3beta_lthr':             'lthr',
 };
 
 // Override lsSave: salva local E agenda sync para nuvem
@@ -8423,6 +8542,230 @@ function initPlanSwipe() {
     // A animação de entrada é feita em renderPlanoTab via _planSwipeEntrada
     window._planSwipeEntrada = entradaX;
   }, { passive: true });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TESTE LTHR (Limiar Anaeróbio de FC)
+// ═══════════════════════════════════════════════════════════════
+// Feature portada da produção. Decisões aplicadas no port (Rogério · abril/2026):
+//   - Storage isolado: prefixo v3beta_lthr (não toca v3_lthr da produção).
+//   - Zonas (método Friel) aparecem como REFERÊNCIA LATERAL no card.
+//     As zonas manuais do PDF zonas_fc_sub3_rogério_08-04-2026.pdf permanecem
+//     fonte de verdade para o resto do app. Modo híbrido (item a da revisão).
+//   - Validação semântica do bpm: aviso amarelo fora da faixa 140–195 bpm,
+//     não bloqueia o save (item b da revisão).
+//   - Valor do LTHR no card com cor accent em vez de red: coerência com
+//     sistema de status GREEN/YELLOW/RED (item d da revisão).
+
+const LS_LTHR = 'v3beta_lthr';
+
+function getLTHR() {
+  try { return JSON.parse(localStorage.getItem(LS_LTHR) || '[]'); } catch { return []; }
+}
+
+// Zonas de FC baseadas no LTHR (método Friel). Usado apenas como referência
+// lateral no card LTHR — não substitui as zonas manuais do PDF em nenhum
+// outro lugar do app (decisão: modo híbrido).
+function calcularZonas(lthr) {
+  return [
+    { zona: 'Z1', nome: 'Recuperação ativa',      min: Math.round(lthr * 0.00), max: Math.round(lthr * 0.81), cor: '#64748b' },
+    { zona: 'Z2', nome: 'Aeróbico base',          min: Math.round(lthr * 0.81), max: Math.round(lthr * 0.89), cor: '#22c55e' },
+    { zona: 'Z3', nome: 'Tempo / aeróbico+',      min: Math.round(lthr * 0.89), max: Math.round(lthr * 0.93), cor: '#eab308' },
+    { zona: 'Z4', nome: 'Limiar',                 min: Math.round(lthr * 0.93), max: Math.round(lthr * 1.00), cor: '#f97316' },
+    { zona: 'Z5', nome: 'VO₂máx / neuromuscular', min: Math.round(lthr * 1.00), max: Math.round(lthr * 1.06), cor: '#ef4444' },
+  ];
+}
+
+// Validação semântica do bpm digitado — [melhoria b]
+// Retorna string de aviso se fora da faixa fisiológica esperada, senão retorna null.
+function validarLTHRSemantico(bpm) {
+  if (!bpm) return null;
+  if (bpm < 140) return `LTHR ${bpm}bpm é baixo (esperado 140–195 bpm para adulto treinado). Confira antes de salvar.`;
+  if (bpm > 195) return `LTHR ${bpm}bpm é alto (esperado 140–195 bpm para adulto treinado). Confira antes de salvar.`;
+  return null;
+}
+
+function calcZonasLTHR() {
+  const lthr = parseInt(document.getElementById('lthr-bpm')?.value);
+  const preview = document.getElementById('lthr-zonas-preview');
+  const grid    = document.getElementById('lthr-zonas-grid');
+  const warn    = document.getElementById('lthr-warn');
+  if (!preview || !grid) return;
+
+  // [melhoria b] aviso semântico em tempo real
+  if (warn) {
+    const msg = validarLTHRSemantico(lthr);
+    if (msg) {
+      warn.textContent = '⚠ ' + msg;
+      warn.style.display = 'block';
+    } else {
+      warn.style.display = 'none';
+    }
+  }
+
+  if (!lthr || lthr < 100) { preview.style.display = 'none'; return; }
+
+  const zonas = calcularZonas(lthr);
+  preview.style.display = 'block';
+  grid.innerHTML = zonas.map(z => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;
+      background:var(--bg);border:1px solid var(--b1);border-radius:4px;
+      border-left:3px solid ${z.cor}">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;
+        font-weight:700;color:${z.cor};min-width:24px">${z.zona}</div>
+      <div style="flex:1;font-size:11px;color:var(--muted)">${z.nome}</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;
+        font-weight:700;color:var(--text)">${z.min}–${z.max} <small style="font-size:9px;color:var(--muted)">bpm</small></div>
+    </div>`).join('');
+}
+
+function salvarLTHR() {
+  const data     = document.getElementById('lthr-data')?.value;
+  const bpm      = parseInt(document.getElementById('lthr-bpm')?.value);
+  const km       = parseFloat(document.getElementById('lthr-km')?.value) || 0;
+  const duracao  = parseInt(document.getElementById('lthr-duracao')?.value) || 0;
+  const pace     = document.getElementById('lthr-pace')?.value.trim() || '';
+  const fcMedia  = parseInt(document.getElementById('lthr-fcmedia')?.value) || 0;
+  const notas    = document.getElementById('lthr-notas')?.value.trim() || '';
+
+  if (!data) { toast('Informe a data do teste · sem data não é possível montar a série evolutiva.', true); return; }
+  if (!bpm)  { toast('Informe o LTHR em bpm · o valor do limiar é o dado central do teste.', true); return; }
+  if (!validarDataRegistro(data, 'teste LTHR')) return; // [QW2] data futura bloqueada
+
+  const zonas = calcularZonas(bpm);
+  const reg = {
+    id: Date.now(), data, bpm, km, duracao, pace, fcMedia, notas,
+    zonas, semana: dataToPlanSemana(data)
+  };
+
+  const lst = getLTHR();
+  const idx = lst.findIndex(r => r.data === data);
+  if (idx >= 0) lst[idx] = reg; else lst.push(reg);
+  lst.sort((a,b) => a.data.localeCompare(b.data));
+  lsSave(LS_LTHR, lst);
+
+  // Limpar formulário
+  ['lthr-data','lthr-bpm','lthr-km','lthr-duracao','lthr-pace','lthr-fcmedia','lthr-notas']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const prev = document.getElementById('lthr-zonas-preview');
+  if (prev) prev.style.display = 'none';
+  const warn = document.getElementById('lthr-warn');
+  if (warn) warn.style.display = 'none';
+
+  toggleForm('lthrForm', document.querySelector('[onclick*="lthrForm"]'));
+  renderLTHR();
+  toast('Teste LTHR salvo! ❤️');
+}
+
+function renderLTHR() {
+  const lst = getLTHR();
+  const card = document.getElementById('lthr-ultimo-card');
+  if (!card) return;
+
+  if (lst.length === 0) {
+    card.innerHTML = `<div class="card"><div class="empty">
+      <div class="empty-icon">❤️</div>
+      <div class="empty-txt">Nenhum teste registrado ainda</div></div></div>`;
+    const cv = document.getElementById('cLthrEvolucao');
+    if (cv) cv.style.display = 'none';
+    return;
+  }
+
+  const ultimo = lst[lst.length - 1];
+  const anterior = lst.length > 1 ? lst[lst.length - 2] : null;
+  const delta = anterior ? ultimo.bpm - anterior.bpm : null;
+  // Delta interpretado: LTHR aumentando pode ser bom (mais força no limiar) ou ruim
+  // (fadiga/falta de recuperação). Sem contexto, usar cor neutra para o delta.
+  const deltaCor = delta === null ? '' : (Math.abs(delta) <= 2 ? 'var(--muted)' : (delta > 0 ? 'var(--accent)' : 'var(--yellow)'));
+
+  card.innerHTML = `
+    <div class="card">
+      <div class="card-title">Último teste <span>${fmtData(ultimo.data)}</span></div>
+      <div style="display:flex;align-items:flex-end;gap:16px;margin-bottom:14px">
+        <div>
+          <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase">❤️ LTHR</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:48px;font-weight:900;
+            color:var(--accent);line-height:1">${ultimo.bpm}
+            <span style="font-size:16px;color:var(--muted)">bpm</span>
+          </div>
+          ${delta !== null ? `<div style="font-size:11px;color:${deltaCor};margin-top:2px">
+            ${delta >= 0 ? '+' : ''}${delta} bpm vs anterior</div>` : ''}
+        </div>
+        <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+          ${ultimo.km ? `<div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:6px 8px">
+            <div style="font-size:9px;color:var(--muted)">Distância</div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:var(--text)">${ultimo.km}km</div>
+          </div>` : ''}
+          ${ultimo.duracao ? `<div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:6px 8px">
+            <div style="font-size:9px;color:var(--muted)">Duração</div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:var(--text)">${ultimo.duracao}min</div>
+          </div>` : ''}
+          ${ultimo.pace ? `<div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:6px 8px">
+            <div style="font-size:9px;color:var(--muted)">Pace</div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:var(--text)">${ultimo.pace}/km</div>
+          </div>` : ''}
+          ${ultimo.fcMedia ? `<div style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:6px 8px">
+            <div style="font-size:9px;color:var(--muted)">FC média</div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:var(--text)">${ultimo.fcMedia}bpm</div>
+          </div>` : ''}
+        </div>
+      </div>
+      <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px"
+        title="Zonas calculadas pelo método Friel (% do LTHR). Referência lateral — as zonas manuais do PDF continuam válidas como fonte de verdade.">
+        Zonas de referência (Friel) <span style="color:var(--b2)">· apenas consulta</span>
+      </div>
+      <div style="display:grid;gap:4px">
+        ${ultimo.zonas.map(z => `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 10px;
+            background:var(--bg);border-radius:4px;border-left:3px solid ${z.cor}">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;
+              font-weight:700;color:${z.cor};min-width:24px">${z.zona}</div>
+            <div style="flex:1;font-size:10px;color:var(--muted)">${z.nome}</div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;
+              font-weight:700;color:var(--text)">${z.min}–${z.max}<small style="font-size:9px;color:var(--muted)"> bpm</small></div>
+          </div>`).join('')}
+      </div>
+      ${ultimo.notas ? `<div style="margin-top:10px;font-size:11px;color:var(--muted);
+        font-style:italic">${ultimo.notas}</div>` : ''}
+      ${lst.length > 1 ? `<div style="margin-top:10px;font-size:10px;color:var(--muted)">
+        ${lst.length} testes registrados</div>` : ''}
+    </div>`;
+
+  // Gráfico evolução
+  const cv = document.getElementById('cLthrEvolucao');
+  if (!cv) return;
+  if (lst.length > 1) {
+    cv.style.display = 'block';
+    dc('cLthrEvolucao');
+    const gc = 'rgba(255,255,255,0.04)';
+    charts['cLthrEvolucao'] = new Chart(cv, {
+      type: 'line',
+      data: {
+        labels: lst.map(r => fmtData(r.data).slice(0,5)),
+        datasets: [{
+          data: lst.map(r => r.bpm),
+          borderColor: '#00d4ff',
+          backgroundColor: 'rgba(0,212,255,.08)',
+          borderWidth: 2, fill: true, tension: .4,
+          pointRadius: 5, pointBackgroundColor: '#00d4ff',
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => ctx.raw + ' bpm LTHR' } }
+        },
+        scales: {
+          x: { grid:{color:gc}, ticks:{color:'#64748b',font:{size:10}} },
+          y: { grid:{color:gc}, ticks:{color:'#64748b',font:{size:10},callback:v=>v+' bpm'},
+               suggestedMin: 150, suggestedMax: 185 }
+        }
+      }
+    });
+  } else {
+    cv.style.display = 'none';
+  }
 }
 
 </script>
