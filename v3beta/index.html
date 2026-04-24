@@ -2291,17 +2291,52 @@ function _commitLog(reg, status) {
       const planoR = getPlanoEfetivo();
 
       // Verificar se treino registrado corresponde ao plano ORIGINAL do slot
-      // Se sim, usuário está fazendo o treino correto do dia → salvar direto
+      // Se sim, usuário está fazendo o treino correto do dia.
       const planOrigSlot = planoR.find(p =>
         Number(p.semana) === Number(reg.semana) && p.dia === reg.dia
       );
-      // Verificar se treino corresponde ao plano ORIGINAL do slot
+      //
+      // [Refatoração cascata · abril/2026]
+      // Bug anterior: se casava com original, setávamos _skipInversaoCheck
+      // silenciosamente e salvávamos. Mas o SLOT REAGENDADO (que estava vindo
+      // para cá) ficava órfão — em _reagend + _ignorados para sempre, sem log
+      // vinculando. Resultado: "Pendente vermelho" no dia original do slot
+      // reagendado (sexta), mesmo depois que essa sexta chegava.
+      //
+      // Correção B: quando detectamos essa situação, abrir modal perguntando
+      // ao usuário o que fazer com o treino reagendado abandonado. 3 opções:
+      //   1) Descartar (remove reagend/ignorados, salva registro atual)
+      //   2) Remarcar para outro dia (reaproveita sugerirReagendamento)
+      //   3) Salvar os dois hoje (vincula registro atual ao slot reagendado)
       if (planOrigSlot && planOrigSlot.km > 0) {
         const kmMatch = Math.abs((reg.km||0) - planOrigSlot.km) <= 1.5;
         const nomeMatch = planOrigSlot.treino && reg.treino &&
           planOrigSlot.treino.toLowerCase().split(' ')
             .some(w => w.length > 2 && reg.treino.toLowerCase().includes(w));
         if (kmMatch || nomeMatch) {
+          // [Correção B] Em vez de salvar silenciosamente, perguntar ao
+          // usuário sobre o slot reagendado abandonado.
+          const [rcKey] = reagChegando;
+          const [rcSem, ...rcDiaParts] = rcKey.split('_');
+          const rcDia = rcDiaParts.join('_');
+          const planoReagend = planoR.find(p =>
+            Number(p.semana) === Number(rcSem) && p.dia === rcDia
+          );
+          if (planoReagend) {
+            // Preservar contexto; o modal decidirá a ação e chamará continuação.
+            _regPendente = reg;
+            abrirModalSlotAbandonado({
+              reg,
+              slotReagKey: rcKey,
+              slotReagSem: Number(rcSem),
+              slotReagDia: rcDia,
+              planoOriginalSlot: planOrigSlot,
+              planoReagendado:   planoReagend
+            });
+            return;
+          }
+          // Fallback: se por algum motivo não encontrarmos o plano reagendado,
+          // comportamento antigo (salvar silenciosamente) para não travar o fluxo.
           window._skipInversaoCheck = true;
         }
       }
@@ -2797,6 +2832,131 @@ function confirmarTrocaTreino() {
     _regPendente.planDia     = null;
   }
   _finalizarUI('no_prazo');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// [Correção B] Modal de slot reagendado abandonado
+// ═══════════════════════════════════════════════════════════════
+// Acionado pela refatoração da cascata (_commitLog) quando detecta que
+// o usuário registrou um treino que casa com o plano ORIGINAL do dia,
+// mas há um reagendamento ATIVO chegando para o mesmo dia (outro slot
+// que foi deslocado para cá). Três saídas:
+//
+//  (1) Descartar o reagendamento   → limpa _reagend/_ignorados, salva registro
+//  (2) Remarcar para outro dia     → abre reagendamento manual, depois salva
+//  (3) Salvar os dois hoje (2ª)    → vincula registro ao slot reag, salva
+//
+// Estado preservado em window._slotAbandonadoCtx para callbacks acessarem.
+function abrirModalSlotAbandonado(ctx) {
+  window._slotAbandonadoCtx = ctx;
+  const { planoOriginalSlot, planoReagendado, slotReagSem, slotReagDia } = ctx;
+
+  const tituloOrig = `${planoOriginalSlot.treino}${planoOriginalSlot.km ? ` · ${planoOriginalSlot.km}km` : ''}`;
+  const tituloReag = `${planoReagendado.treino}${planoReagendado.km ? ` · ${planoReagendado.km}km` : ''}`;
+
+  document.getElementById('modalTitle').textContent = '🔀 Slot reagendado em aberto';
+  document.getElementById('modalBody').innerHTML = `
+    <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:14px">
+      O treino que você acabou de registrar casa com o <strong style="color:var(--text)">plano original de hoje</strong>.
+      Mas um outro treino foi <strong style="color:var(--yellow)">reagendado para hoje</strong> anteriormente — precisa decidir o que fazer com ele.
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+      <div style="background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.25);border-radius:4px;padding:10px 12px">
+        <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Plano original de hoje</div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--green);line-height:1.2">${tituloOrig}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">✓ Você fez este</div>
+      </div>
+      <div style="background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.25);border-radius:4px;padding:10px 12px">
+        <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Reagendado p/ hoje (S${slotReagSem}·${slotReagDia})</div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--yellow);line-height:1.2">${tituloReag}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">⚠ Em aberto</div>
+      </div>
+    </div>
+
+    <div style="font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">O que fazer com o treino reagendado?</div>
+
+    <div style="display:grid;gap:8px">
+      <button class="btn btn-ghost" style="text-align:left;padding:12px 14px;line-height:1.4"
+        onclick="acaoSlotDescartar()">
+        <div style="font-weight:700;color:var(--text);margin-bottom:2px">🗑 Descartar o reagendamento</div>
+        <div style="font-size:10px;color:var(--muted)">O treino reagendado some do plano. Seu registro fica como "no prazo" no dia original.</div>
+      </button>
+      <button class="btn btn-ghost" style="text-align:left;padding:12px 14px;line-height:1.4"
+        onclick="acaoSlotRemarcar()">
+        <div style="font-weight:700;color:var(--text);margin-bottom:2px">📅 Remarcar para outro dia</div>
+        <div style="font-size:10px;color:var(--muted)">Escolher nova data para o treino reagendado. Seu registro fica como "no prazo".</div>
+      </button>
+      <button class="btn btn-primary" style="text-align:left;padding:12px 14px;line-height:1.4"
+        onclick="acaoSlotSalvarDois()">
+        <div style="font-weight:700;margin-bottom:2px">✓ Salvar os dois hoje (2ª sessão)</div>
+        <div style="font-size:10px;opacity:.85">Seu registro cumpre o slot reagendado. Útil quando você fez ambos no mesmo dia.</div>
+      </button>
+    </div>
+
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--b1);text-align:center">
+      <button class="btn btn-ghost" onclick="closeModal()" style="font-size:10px;color:var(--muted)">Cancelar (não salvar o registro)</button>
+    </div>
+  `;
+  openModal();
+}
+
+// Ação 1 — descartar o reagendamento abandonado, salvar registro como no_prazo puro
+function acaoSlotDescartar() {
+  const ctx = window._slotAbandonadoCtx;
+  if (!ctx) { closeModal(); return; }
+  const { slotReagKey, planoReagendado } = ctx;
+  // Remove de _reagend
+  delete _reagend[slotReagKey];
+  lsSave(LS_REAGEND, _reagend);
+  // Remove de _ignorados entrada correspondente
+  const igKey = `${slotReagKey}_${planoReagendado.treino}`;
+  _ignorados.delete(igKey);
+  lsSave(LS_IGN, [..._ignorados]);
+  closeModal();
+  window._skipInversaoCheck = true;
+  _finalizarUI('no_prazo');
+  toast(`Reagendamento descartado · slot ${slotReagKey.replace('_',' · ')} removido do plano.`);
+}
+
+// Ação 2 — remarcar o slot reagendado para outro dia
+function acaoSlotRemarcar() {
+  const ctx = window._slotAbandonadoCtx;
+  if (!ctx) { closeModal(); return; }
+  const { slotReagKey, slotReagSem, slotReagDia, planoReagendado } = ctx;
+  // Primeiro: salvar o registro atual como no_prazo (ele não depende da remarcação)
+  closeModal();
+  window._skipInversaoCheck = true;
+  _finalizarUI('no_prazo');
+  // Depois: abrir modal de reagendamento manual (função existente)
+  setTimeout(() => {
+    if (typeof abrirReagendamento === 'function') {
+      abrirReagendamento(slotReagSem, slotReagDia, planoReagendado.treino);
+    }
+  }, 250);
+  toast(`Registro salvo · escolha nova data para o slot ${slotReagKey.replace('_',' · ')}.`);
+}
+
+// Ação 3 — vincular o registro ao slot reagendado (cumprimento como 2ª sessão)
+function acaoSlotSalvarDois() {
+  const ctx = window._slotAbandonadoCtx;
+  if (!ctx) { closeModal(); return; }
+  const { slotReagKey, slotReagSem, slotReagDia, planoReagendado } = ctx;
+  // Vincular registro pendente ao slot reagendado
+  if (_regPendente) {
+    _regPendente.planSemana = slotReagSem;
+    _regPendente.planDia    = slotReagDia;
+  }
+  // Marcar slot reagendado como consumido: remove de _reagend e de _ignorados
+  delete _reagend[slotReagKey];
+  lsSave(LS_REAGEND, _reagend);
+  const igKey = `${slotReagKey}_${planoReagendado.treino}`;
+  _ignorados.delete(igKey);
+  lsSave(LS_IGN, [..._ignorados]);
+  closeModal();
+  window._skipInversaoCheck = true;
+  _finalizarUI('no_prazo');
+  toast(`Slot ${slotReagKey.replace('_',' · ')} consumido · registro salvo como 2ª sessão do dia.`);
 }
 
 function confirmarCascata() {
