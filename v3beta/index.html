@@ -2905,7 +2905,7 @@ function abrirModalSlotAbandonado(ctx) {
 function acaoSlotDescartar() {
   const ctx = window._slotAbandonadoCtx;
   if (!ctx) { closeModal(); return; }
-  const { slotReagKey, planoReagendado } = ctx;
+  const { slotReagKey, planoReagendado, reg } = ctx;
   // Remove de _reagend
   delete _reagend[slotReagKey];
   lsSave(LS_REAGEND, _reagend);
@@ -2913,8 +2913,10 @@ function acaoSlotDescartar() {
   const igKey = `${slotReagKey}_${planoReagendado.treino}`;
   _ignorados.delete(igKey);
   lsSave(LS_IGN, [..._ignorados]);
+  // [FIX] Persistir o registro antes de finalizar UI (não estava sendo salvo)
+  reg.statusPlano = 'no_prazo';
+  _salvarRegNoLog(reg);
   closeModal();
-  window._skipInversaoCheck = true;
   _finalizarUI('no_prazo');
   toast(`Reagendamento descartado · slot ${slotReagKey.replace('_',' · ')} removido do plano.`);
 }
@@ -2923,10 +2925,11 @@ function acaoSlotDescartar() {
 function acaoSlotRemarcar() {
   const ctx = window._slotAbandonadoCtx;
   if (!ctx) { closeModal(); return; }
-  const { slotReagKey, slotReagSem, slotReagDia, planoReagendado } = ctx;
-  // Primeiro: salvar o registro atual como no_prazo (ele não depende da remarcação)
+  const { slotReagKey, slotReagSem, slotReagDia, planoReagendado, reg } = ctx;
+  // [FIX] Persistir o registro antes do fluxo de remarcação
+  reg.statusPlano = 'no_prazo';
+  _salvarRegNoLog(reg);
   closeModal();
-  window._skipInversaoCheck = true;
   _finalizarUI('no_prazo');
   // Depois: abrir modal de reagendamento manual (função existente)
   setTimeout(() => {
@@ -2941,12 +2944,12 @@ function acaoSlotRemarcar() {
 function acaoSlotSalvarDois() {
   const ctx = window._slotAbandonadoCtx;
   if (!ctx) { closeModal(); return; }
-  const { slotReagKey, slotReagSem, slotReagDia, planoReagendado } = ctx;
-  // Vincular registro pendente ao slot reagendado
-  if (_regPendente) {
-    _regPendente.planSemana = slotReagSem;
-    _regPendente.planDia    = slotReagDia;
-  }
+  const { slotReagKey, slotReagSem, slotReagDia, planoReagendado, reg } = ctx;
+  // [FIX] Vincular registro ao slot reagendado e persistir
+  reg.statusPlano = 'no_prazo';
+  reg.planSemana  = slotReagSem;
+  reg.planDia     = slotReagDia;
+  _salvarRegNoLog(reg);
   // Marcar slot reagendado como consumido: remove de _reagend e de _ignorados
   delete _reagend[slotReagKey];
   lsSave(LS_REAGEND, _reagend);
@@ -2954,7 +2957,6 @@ function acaoSlotSalvarDois() {
   _ignorados.delete(igKey);
   lsSave(LS_IGN, [..._ignorados]);
   closeModal();
-  window._skipInversaoCheck = true;
   _finalizarUI('no_prazo');
   toast(`Slot ${slotReagKey.replace('_',' · ')} consumido · registro salvo como 2ª sessão do dia.`);
 }
