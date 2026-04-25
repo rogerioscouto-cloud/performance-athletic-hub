@@ -5147,8 +5147,8 @@ function renderPlanoTab() {
   // ── Grade calendário 7 colunas ───────────────────────────
   html += `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px">`;
 
-  // Cabeçalho dos dias
-  const DIAS_LABEL = ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg'];
+  // Cabeçalho dos dias — ordem vem da âncora do ciclo (Seg-primeiro vs Ter-primeiro)
+  const DIAS_LABEL = getAncoraDoCiclo(planSemSel).ordemDias;
   DIAS_LABEL.forEach(d => {
     const dataD   = gerarDataPlano(planSemSel, d);
     const diaNum  = dataD.slice(8,10);   // DD
@@ -5161,8 +5161,12 @@ function renderPlanoTab() {
     </div>`;
   });
 
-  // Células de cada dia
-  sessoes.forEach(r => {
+  // Células de cada dia — itera na ordem do DIAS_LABEL para garantir alinhamento
+  // visual com o cabeçalho (independente da ordem de inserção no plano).
+  const sessoesPorDia = {};
+  sessoes.forEach(r => { sessoesPorDia[r.dia] = r; });
+  const sessoesOrdenadas = DIAS_LABEL.map(d => sessoesPorDia[d]).filter(Boolean);
+  sessoesOrdenadas.forEach(r => {
     const slotKey    = `${r.semana}_${r.dia}`;
     const igKey      = `${r.semana}_${r.dia}_${r.treino}`;
     // Debug S2/Sex
