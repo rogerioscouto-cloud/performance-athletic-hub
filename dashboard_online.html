@@ -1914,14 +1914,16 @@ const PLANO_BASE = [
 
 // ── Plano efetivo: base + semanas extras do upload ────────
 function getPlanoEfetivo() {
-  const uploaded = getPlano(); // semanas adicionais salvas pelo upload
+  const uploaded = getPlano();
   if (uploaded.length === 0) return PLANO_BASE;
-  // Identificar semanas do upload que são > 8 (complementares)
-  const semsBase     = new Set(PLANO_BASE.map(r => r.semana));
-  const semsUpload   = [...new Set(uploaded.map(r => Number(r.semana)))];
-  const semsExtras   = semsUpload.filter(s => !semsBase.has(s));
-  const extras       = uploaded.filter(r => semsExtras.includes(Number(r.semana)));
-  return [...PLANO_BASE, ...extras];
+  // Para cada semana, prefere a versão do upload (se existir).
+  // PLANO_BASE só preenche semanas que NÃO foram revisadas no upload.
+  // Antes desta correção, a função só incluía uploads com semana > 8 e
+  // ignorava revisões de S1-S8 — o renderizador via sempre o PLANO_BASE
+  // hardcoded para as 8 primeiras semanas, mesmo após upload do treinador.
+  const semsUpload = new Set(uploaded.map(r => Number(r.semana)));
+  const baseFiltrado = PLANO_BASE.filter(r => !semsUpload.has(Number(r.semana)));
+  return [...baseFiltrado, ...uploaded].sort((a,b) => Number(a.semana) - Number(b.semana));
 }
 
 // Retorna km planejados por semana — usa plano efetivo
