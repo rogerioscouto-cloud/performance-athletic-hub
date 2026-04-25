@@ -3479,13 +3479,17 @@ function renderProntidao() {
   const pront=getPront();
   // Semana atual pela data de hoje
   const semAtual = dataToPlanSemana(dataHoje());
-  const dataIniSem = gerarDataPlano(semAtual, 'Ter');
-  const dataFimSem = gerarDataPlano(semAtual, 'Seg');
+  // Ordem dos dias respeita o ciclo (Seg-primeiro vs Ter-primeiro)
+  const ordemDias = getAncoraDoCiclo(semAtual).ordemDias;
+  const primeiroDia = ordemDias[0];                       // ex.: 'Ter' (ciclo 1) ou 'Seg' (ciclo 3)
+  const ultimoDia   = ordemDias[ordemDias.length - 1];    // ex.: 'Seg' (ciclo 1) ou 'Dom' (ciclo 3)
+  const dataIniSem = gerarDataPlano(semAtual, primeiroDia);
+  const dataFimSem = gerarDataPlano(semAtual, ultimoDia);
   document.getElementById('pont-sem-lbl').textContent=`S${semAtual} · ${dataIniSem.slice(8,10)}/${dataIniSem.slice(5,7)} – ${dataFimSem.slice(8,10)}/${dataFimSem.slice(5,7)}`;
   // Grid semana atual
   const pS=pront.filter(r=>Number(r.semana)===Number(semAtual));
   const grid=document.getElementById('pontGrid');
-  grid.innerHTML=DIAS_NOME.map(d=>{
+  grid.innerHTML=ordemDias.map(d=>{
     const r=pS.find(x=>x.dia===d);
     const dataD = gerarDataPlano(semAtual, d);
     const diaNum = dataD.slice(8,10);
@@ -4029,7 +4033,8 @@ function destacarDiaHoje() {
   const dia  = dataToDia(hoje);
   const sem  = dataToPlanSemana(hoje);
   if (Number(planSemSel) !== sem) return;
-  const DIAS_ORDEM = ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg'];
+  // Ordem dos dias vem do ciclo da semana selecionada (Seg-primeiro vs Ter-primeiro)
+  const DIAS_ORDEM = getAncoraDoCiclo(planSemSel).ordemDias;
   const idx  = DIAS_ORDEM.indexOf(dia);
   if (idx < 0) return;
   const grid = document.getElementById('planSemGrid');
@@ -6801,7 +6806,8 @@ function buildDashContext() {
     const aderSem   = kmPlanSem>0 ? Math.round((kmRealSem/kmPlanSem)*100) : 0;
     linhas.push(`Volume: ${kmRealSem.toFixed(1)}km / ${kmPlanSem}km planejados (${aderSem}% aderência)`);
     if (forcaSem.length>0) linhas.push(`Força: ${forcaSem.map(f=>f.tipo||'Treino').join(', ')}`);
-    const DIAS_SEQ = ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg'];
+    // Ordem dos dias respeita o ciclo da semana atual (Seg-primeiro vs Ter-primeiro)
+    const DIAS_SEQ = getAncoraDoCiclo(semAtual).ordemDias;
     const resumoDias = DIAS_SEQ.map(dia => {
       const pl=plano.find(p=>Number(p.semana)===semAtual&&p.dia===dia);
       const re=logSem.filter(l=>l.dia===dia);
@@ -7489,8 +7495,8 @@ function mostrarDiagLS() {
 
   txt += `\n=== HOJE: ${diagHoje} | Semana: ${diagSem} | Dia: ${dataToDia(diagHoje)} ===\n`;
 
-  // Verificar slots críticos
-  const DIAS_PLAN = ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg'];
+  // Verificar slots críticos — ordem dos dias respeita o ciclo
+  const DIAS_PLAN = getAncoraDoCiclo(diagSem).ordemDias;
   txt += '\n=== SLOTS SEMANA ATUAL ===\n';
   DIAS_PLAN.forEach(dia => {
     const dataSlot = gerarDataPlano(diagSem, dia);
