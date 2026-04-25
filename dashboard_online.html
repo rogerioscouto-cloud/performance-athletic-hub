@@ -4662,32 +4662,143 @@ function importarPlano(file) {
         return;
       }
       const todas = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
-      // Encontrar cabeçalho
-      let headerIdx = -1;
-      for (let i = 0; i < todas.length; i++) {
-        if (todas[i].some(c => String(c).trim() === 'Semana')) { headerIdx = i; break; }
-      }
-      if (headerIdx < 0) { mostrarPlanStatus('❌ Cabeçalho não encontrado na planilha.', 'var(--red)'); return; }
 
-      const headers  = todas[headerIdx].map(h => String(h).trim());
-      const dataRows = todas.slice(headerIdx + 1);
+      // ─── Normalização tolerante de cabeçalhos ───────────────────────
+      // lowercase + remove diacríticos + colapsa espaços + trim
+      const normHeader = s => String(s||'')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+      // Extrai o que está fora dos parênteses ("Volume (km)" → "volume")
+      // e o que está dentro ("(km)" → "km"). Útil quando o qualificador
+      // entre parênteses carrega o sinônimo verdadeiro.
+      const splitHeader = norm => {
+        const dentro = [];
+        const fora = norm.replace(/\(([^)]*)\)/g, (_, m) => { dentro.push(m.trim()); return ' '; })
+                         .replace(/\s+/g, ' ').trim();
+        return { fora, dentro };
+      };
+      // Sinônimos por campo lógico — match por prefixo normalizado.
+      // Ex.: "SEMANA (número)" → norm "semana (numero)" → startsWith("semana") ✓
+      // Sinônimos por campo lógico — match por prefixo normalizado.
+      // Ex.: "SEMANA (número)" → norm "semana (numero)" → startsWith("semana") ✓
+      const SINONIMOS = {
+        semana:   ['semana', 'sem.', 'sem ', 'microciclo', 'micro', 'week', 'wk', 'n semana', 'nº semana', 'no semana'],
+        dia:      ['dia'],
+        treino:   ['treino planejado', 'treino', 'sessao', 'sessão', 'workout', 'descricao', 'descrição'],
+        objetivo: ['objetivo', 'objetivo fisiologico', 'objetivo fisiológico', 'foco', 'goal'],
+        km:       ['km planejados', 'km plan', 'km (distancia)', 'km (distância)', 'km', 'distancia', 'distância', 'volume km'],
+        carga:    ['carga planejada', 'carga ua', 'carga (ua)', 'carga', 'trimp', 'load'],
+        zona:     ['zona', 'zone', 'intensidade'],
+        fc:       ['fc alvo', 'fc-alvo', 'fc', 'frequencia cardiaca', 'frequência cardíaca', 'bpm alvo', 'bpm', 'hr alvo', 'hr'],
+        tempo:    ['duracao', 'duração', 'tempo previsto', 'tempo', 'minutos', 'min', 'duration'],
+        obs:      ['observacao', 'observação', 'observacoes', 'observações', 'obs', 'instrucao', 'instrução', 'notas', 'nota', 'comentario', 'comentário'],
+      };
+      // Casa um header normalizado contra os sinônimos do campo.
+      // Estratégia: tenta match por prefixo no texto FORA dos parênteses
+      // (cobre "SEMANA (número)" → fora="semana" → bate). Se falhar,
+      // checa se algum conteúdo DENTRO dos parênteses é exatamente um sinônimo
+      // (cobre "Volume (km)" → dentro=["km"] → bate em "km").
+      const matchCampo = (headerNorm, campo) => {
+        const sins = SINONIMOS[campo];
+        const ordenadas = [...sins].sort((a,b) => b.length - a.length);
+        const { fora, dentro } = splitHeader(headerNorm);
+        // a) match por prefixo na parte de fora
+        if (ordenadas.some(s => fora === s || fora.startsWith(s + ' '))) return true;
+        // b) match exato no conteúdo entre parênteses
+        if (dentro.some(d => ordenadas.includes(d))) return true;
+        return false;
+      };
+
+      // ─── Localizar linha do cabeçalho (varre primeiras 15 linhas) ───
+      // Antes: exigia célula com texto exato "Semana". Agora: aceita qualquer
+      // sinônimo de "semana" + presença de pelo menos um sinônimo de "dia".
+      let headerIdx = -1;
+      const limiteVarredura = Math.min(todas.length, 15);
+      for (let i = 0; i < limiteVarredura; i++) {
+        const linhaNorm = todas[i].map(normHeader);
+        const temSemana = linhaNorm.some(h => matchCampo(h, 'semana'));
+        const temDia    = linhaNorm.some(h => matchCampo(h, 'dia'));
+        if (temSemana && temDia) { headerIdx = i; break; }
+      }
+      if (headerIdx < 0) {
+        mostrarPlanStatus('❌ Cabeçalho não encontrado. Esperado colunas com "Semana" e "Dia" nas primeiras 15 linhas.', 'var(--red)');
+        return;
+      }
+
+      // ─── Mapear índice de cada campo lógico → coluna da planilha ────
+      // Helper: dada uma linha de headers normalizados, retorna {idxDe, campos achados}.
+      const mapearCampos = (linhaHeadersNorm) => {
+        const mapa = {};
+        Object.keys(SINONIMOS).forEach(campo => {
+          mapa[campo] = linhaHeadersNorm.findIndex(h => matchCampo(h, campo));
+        });
+        const totalAchados = Object.values(mapa).filter(i => i >= 0).length;
+        return { mapa, totalAchados };
+      };
+
+      // Tentativa 1: cabeçalho de uma linha só (caso comum)
+      const headersNormA = todas[headerIdx].map(normHeader);
+      const tentA = mapearCampos(headersNormA);
+
+      // Heurística: se faltam campos (qualquer um < 10) E existe linha seguinte,
+      // tenta mesclar com a próxima — lida com cabeçalhos de 2 linhas tipo
+      //   linha N:    KM       | FC      | DURAÇÃO
+      //   linha N+1:  Planejado | Alvo    | (min)
+      // Adota a fusão SOMENTE se ela encontrar estritamente mais campos que a linha sozinha.
+      // (Se a linha sozinha já achou tudo, não há razão para gastar a tentativa.)
+      const TOTAL_CAMPOS = Object.keys(SINONIMOS).length;
+      let idxDe         = tentA.mapa;
+      let dataStartIdx  = headerIdx + 1;
+      let headerMultilinha = false;
+
+      if (tentA.totalAchados < TOTAL_CAMPOS && headerIdx + 1 < todas.length) {
+        const linhaA = todas[headerIdx]     || [];
+        const linhaB = todas[headerIdx + 1] || [];
+        const colsMax = Math.max(linhaA.length, linhaB.length);
+        const fundidos = [];
+        for (let c = 0; c < colsMax; c++) {
+          const a = String(linhaA[c] || '').trim();
+          const b = String(linhaB[c] || '').trim();
+          fundidos.push(a && b ? `${a} ${b}` : (a || b));
+        }
+        const headersNormB = fundidos.map(normHeader);
+        const tentB = mapearCampos(headersNormB);
+        if (tentB.totalAchados > tentA.totalAchados) {
+          idxDe            = tentB.mapa;
+          dataStartIdx     = headerIdx + 2;
+          headerMultilinha = true;
+        }
+      }
+
+      const dataRows = todas.slice(dataStartIdx);
       const resultado = [];
 
       dataRows.forEach(row => {
-        const get = col => { const i = headers.indexOf(col); return i >= 0 ? row[i] : ''; };
-        const sem  = Number(get('Semana')) || 0;
-        const dia  = String(get('Dia') || '').trim();
+        const cell = campo => idxDe[campo] >= 0 ? row[idxDe[campo]] : '';
+        // Aceita "5", 5, " 5 ", rejeita "Bloco S5–S8 ..." (rodapé)
+        const semRaw = String(cell('semana') || '').trim();
+        const sem    = /^\d+$/.test(semRaw) ? Number(semRaw) : 0;
+        const dia    = String(cell('dia') || '').trim();
         if (!sem || !dia) return;
+        // Zona + FC podem vir juntas (campo único "Zona / FC Alvo") ou
+        // separadas (colunas distintas "ZONA" e "FC ALVO"). Concatena se ambas.
+        const zonaRaw = String(cell('zona') || '').trim();
+        const fcRaw   = String(cell('fc')   || '').trim();
+        const zonaCombinada = (zonaRaw && fcRaw && zonaRaw !== fcRaw)
+          ? `${zonaRaw} · ${fcRaw}`
+          : (zonaRaw || fcRaw);
         resultado.push({
           semana:  sem,
           dia,
-          treino:  String(get('Treino Planejado') || '').trim(),
-          objetivo:String(get('Objetivo') || '').trim(),
-          km:      Number(get('Km\nPlanejados') || get('Km Planejados') || get('Km')) || 0,
-          carga:   Number(get('Carga\nPlanejada') || get('Carga Planejada') || get('Carga')) || 0,
-          zona:    String(get('Zona / FC Alvo') || '').trim(),
-          tempo:   Number(get('Tempo Previsto\n(min)') || get('Tempo Previsto') || get('Tempo')) || 0,
-          obs:     String(get('Observação / Instrução') || get('Observação') || '').trim(),
+          treino:  String(cell('treino')   || '').trim(),
+          objetivo:String(cell('objetivo') || '').trim(),
+          km:      Number(cell('km'))    || 0,
+          carga:   Number(cell('carga')) || 0,
+          zona:    zonaCombinada,
+          tempo:   Number(cell('tempo')) || 0,
+          obs:     String(cell('obs') || '').trim(),
         });
       });
 
@@ -4698,7 +4809,12 @@ function importarPlano(file) {
       document.getElementById('plan-sem-count').textContent  = sems.length;
       document.getElementById('plan-sess-count').textContent = resultado.filter(r=>r.treino && r.treino !== 'Descanso').length;
       document.getElementById('plan-km-count').textContent   = kmTotal.toFixed(0) + ' km';
-      document.getElementById('plan-avisos').innerHTML       = resultado.length === 0 ? '⚠️ Nenhuma linha com dados encontrada.' : '';
+      // Aviso composto: alerta de "vazio" tem prioridade; senão, aviso discreto de header multi-linha (se houve fusão).
+      const avisoVazio = resultado.length === 0 ? '⚠️ Nenhuma linha com dados encontrada.' : '';
+      const avisoMulti = (headerMultilinha && resultado.length > 0)
+        ? '<span style="color:var(--muted);font-size:10px">ℹ︎ Cabeçalho de 2 linhas detectado e mesclado automaticamente.</span>'
+        : '';
+      document.getElementById('plan-avisos').innerHTML       = avisoVazio || avisoMulti;
       document.getElementById('planPreview').style.display   = 'block';
       document.getElementById('planStatus').style.display    = 'none';
     } catch(err) {
