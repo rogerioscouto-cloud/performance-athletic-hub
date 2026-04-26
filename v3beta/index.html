@@ -766,7 +766,7 @@ input[type=range]::-webkit-slider-thumb{
     </div>
     <div class="kpi">
       <div class="kpi-lbl" title="Soma de quilômetros previstos no plano de treinos para o período selecionado.">Km planejados</div>
-      <div class="kpi-val" id="ov-kmplan">304<small>km</small></div>
+      <div class="kpi-val" id="ov-kmplan">—<small>km</small></div>
       <div class="kpi-delta">Total do plano</div>
     </div>
     <div class="kpi y">
@@ -1952,13 +1952,51 @@ function getLogPorCiclo(ciclo) {
 function getNomeCiclo(ciclo) {
   return ciclo === 'todos' ? 'Todos os ciclos' : `Ciclo ${ciclo}`;
 }
-function iniciarNovoCiclo(semsSubstituidas) {
+function iniciarNovoCiclo(semsSubstituidas, ancora) {
+  // [Port-Calendario] ancora = { ancoraSem, ancoraDia, ancoraData, ordemDias } | undefined (legado)
   const hist = getHistoricoPlanos();
   const novoCiclo = getCicloAtual() + 1;
-  hist.push({ ciclo: novoCiclo, semsSubstituidas, dataSubstituicao: new Date().toISOString().slice(0,10) });
+  const entry = {
+    ciclo: novoCiclo,
+    semsSubstituidas,
+    dataSubstituicao: new Date().toISOString().slice(0,10)
+  };
+  if (ancora) {
+    entry.ancoraSem  = ancora.ancoraSem;
+    entry.ancoraDia  = ancora.ancoraDia;
+    entry.ancoraData = ancora.ancoraData;
+    entry.ordemDias  = ancora.ordemDias;
+  }
+  hist.push(entry);
   localStorage.setItem(LS_HISTORICO_PLANOS, JSON.stringify(hist));
   localStorage.setItem(LS_CICLO_ATUAL, String(novoCiclo));
   return novoCiclo;
+}
+
+// [Port-Calendario] Função canônica para calendário por ciclo.
+// Retorna a âncora (data, dia, ordem) que rege as semanas pertencentes a um ciclo.
+// Para ciclo 1 ou ciclos sem âncora persistida, retorna fallback hardcoded
+// compatível com PLANO_BASE original (ânchor 31/03 Ter, ordem Ter→Seg).
+function getAncoraDoCiclo(semana) {
+  const ciclo = getCicloDaSemana(semana);
+  if (ciclo > 1) {
+    const hist = getHistoricoPlanos();
+    const entry = hist.find(h => h.ciclo === ciclo);
+    if (entry && entry.ancoraData && entry.ancoraDia && entry.ancoraSem && entry.ordemDias) {
+      return {
+        ancoraSem:  entry.ancoraSem,
+        ancoraDia:  entry.ancoraDia,
+        ancoraData: entry.ancoraData,
+        ordemDias:  entry.ordemDias
+      };
+    }
+  }
+  return {
+    ancoraSem:  1,
+    ancoraDia:  'Ter',
+    ancoraData: '2026-03-31',
+    ordemDias:  ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg']
+  };
 }
 const salvarCfg_ = (v) => lsSave(LS.CFG, v);
 
@@ -2047,14 +2085,12 @@ const PLANO_BASE = [
 
 // ── Plano efetivo: base + semanas extras do upload ────────
 function getPlanoEfetivo() {
-  const uploaded = getPlano(); // semanas adicionais salvas pelo upload
+  // [Port-Calendario] Bug 4: uploads agora prevalecem por semana (S1-S8 inclusive)
+  const uploaded = getPlano();
   if (uploaded.length === 0) return PLANO_BASE;
-  // Identificar semanas do upload que são > 8 (complementares)
-  const semsBase     = new Set(PLANO_BASE.map(r => r.semana));
-  const semsUpload   = [...new Set(uploaded.map(r => Number(r.semana)))];
-  const semsExtras   = semsUpload.filter(s => !semsBase.has(s));
-  const extras       = uploaded.filter(r => semsExtras.includes(Number(r.semana)));
-  return [...PLANO_BASE, ...extras];
+  const semsUpload = new Set(uploaded.map(r => Number(r.semana)));
+  const baseFiltrado = PLANO_BASE.filter(r => !semsUpload.has(Number(r.semana)));
+  return [...baseFiltrado, ...uploaded].sort((a,b) => Number(a.semana) - Number(b.semana));
 }
 
 // Retorna km planejados por semana — usa plano efetivo
@@ -2599,12 +2635,10 @@ function recalcularCascata() {
   const log = getLog();
   // Usar treino adiantado/atrasado com maior delta absoluto
   // (evita pegar treino com delta=0 que geraria cascata vazia)
-  const DIAS_R = {'Ter':0,'Qua':1,'Qui':2,'Sex':3,'Sáb':4,'Dom':5,'Seg':6};
+  // [Port-Calendario] delta calculado via gerarDataPlano (que usa âncora correta)
   function deltaDoTreino(l) {
     if (!l.planSemana || !l.planDia) return 0;
-    const base = new Date('2026-03-31T12:00:00');
-    const dp = new Date(base);
-    dp.setDate(dp.getDate() + (Number(l.planSemana)-1)*7 + (DIAS_R[l.planDia]??0));
+    const dp = new Date(gerarDataPlano(Number(l.planSemana), l.planDia) + 'T12:00:00');
     const dr = new Date(l.data + 'T12:00:00');
     return Math.round((dr - dp) / 86400000);
   }
@@ -3691,12 +3725,17 @@ function lerAbaPront(wb) {
 // Gera data baseada na semana e dia do plano
 // Usa como âncora: Semana 1, Terça = 2026-03-31 (Dia 1 do plano = descanso)
 function gerarDataPlano(semana, dia) {
-  // Plano inicia em 31/03/2026 (Terça-feira = Dia 0 da Semana 1)
-  // Sequência da semana: Ter(0), Qua(1), Qui(2), Sex(3), Sáb(4), Dom(5), Seg(6)
-  const DIAS = { 'Ter':0,'Qua':1,'Qui':2,'Sex':3,'Sáb':4,'Dom':5,'Seg':6 };
-  const base = new Date(PLANO_INICIO + 'T12:00:00'); // 2026-03-31 = Terça
-  const offsetSemanas = (semana - 1) * 7;
-  const offsetDia     = DIAS[dia] ?? 0;
+  // [Port-Calendario] Bug 2: usa âncora por ciclo em vez de PLANO_INICIO hardcoded.
+  // Compatível: ciclo 1 ou ciclos sem âncora persistida caem no fallback
+  // (ancoraData=2026-03-31, ancoraDia=Ter, ordemDias=[Ter→Seg]).
+  const { ancoraSem, ancoraDia, ancoraData, ordemDias } = getAncoraDoCiclo(semana);
+  const idxNaOrdem = (d) => {
+    const i = ordemDias.indexOf(d);
+    return i >= 0 ? i : 0;
+  };
+  const base = new Date(ancoraData + 'T12:00:00');
+  const offsetSemanas = (Number(semana) - Number(ancoraSem)) * 7;
+  const offsetDia     = idxNaOrdem(dia) - idxNaOrdem(ancoraDia);
   const data = new Date(base);
   data.setDate(data.getDate() + offsetSemanas + offsetDia);
   return data.toISOString().slice(0, 10);
@@ -3767,15 +3806,18 @@ function cancelarImportacao() {
 let pontSem=1;
 function renderProntidao() {
   const pront=getPront();
-  // Semana atual pela data de hoje
+  // [Port-Calendario] Semana atual e âncora do ciclo desta semana
   const semAtual = dataToPlanSemana(dataHoje());
-  const dataIniSem = gerarDataPlano(semAtual, 'Ter');
-  const dataFimSem = gerarDataPlano(semAtual, 'Seg');
+  const ordem = getAncoraDoCiclo(semAtual).ordemDias;
+  const primeiroDia = ordem[0];
+  const ultimoDia   = ordem[ordem.length - 1];
+  const dataIniSem = gerarDataPlano(semAtual, primeiroDia);
+  const dataFimSem = gerarDataPlano(semAtual, ultimoDia);
   document.getElementById('pont-sem-lbl').textContent=`S${semAtual} · ${dataIniSem.slice(8,10)}/${dataIniSem.slice(5,7)} – ${dataFimSem.slice(8,10)}/${dataFimSem.slice(5,7)}`;
-  // Grid semana atual
+  // Grid semana atual — itera na ordem do ciclo
   const pS=pront.filter(r=>Number(r.semana)===Number(semAtual));
   const grid=document.getElementById('pontGrid');
-  grid.innerHTML=DIAS_NOME.map(d=>{
+  grid.innerHTML=ordem.map(d=>{
     const r=pS.find(x=>x.dia===d);
     const dataD = gerarDataPlano(semAtual, d);
     const diaNum = dataD.slice(8,10);
@@ -4142,6 +4184,10 @@ function atualizarKPIs() {
   const totalSems = semsTotal.length || 8;
 
   setTxt('ov-km',`${kmAcc.toFixed(0)}<small>km</small>`);
+  // [Port-Calendario] Bug 6: km planejado total era hardcoded em 304 no HTML.
+  // Agora calcula dinamicamente do plano efetivo (PLANO_BASE + uploads).
+  const kmTotalPlanejado = getPlanoEfetivo().reduce((s,r) => s + (Number(r.km)||0), 0);
+  setTxt('ov-kmplan', `${kmTotalPlanejado.toFixed(0)}<small>km</small>`);
   setTxt('ov-ader',ader!==null?`${ader}<small>%</small>`:'<small style="font-size:20px">—</small>');
   setTxt('ov-carga',`${cargaTotal.toFixed(0)}<small>UA</small>`);
   setTxt('ov-efic',eficM||'—');
@@ -4563,7 +4609,8 @@ function destacarDiaHoje() {
   const dia  = dataToDia(hoje);
   const sem  = dataToPlanSemana(hoje);
   if (Number(planSemSel) !== sem) return;
-  const DIAS_ORDEM = ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg'];
+  // [Port-Calendario] Ordem dos dias respeita o ciclo
+  const DIAS_ORDEM = getAncoraDoCiclo(sem).ordemDias;
   const idx  = DIAS_ORDEM.indexOf(dia);
   if (idx < 0) return;
   const grid = document.getElementById('planSemGrid');
@@ -5224,6 +5271,7 @@ async function delForca(id) {
 //  PLANEJAMENTO
 // ═══════════════════════════════════════
 let _planoImportado = [];
+let _planoImportadoMeta = null; // [Port-Calendario] { ordemDias: [...], primeiraSem } — capturada pelo parser
 let planSemSel = 1;
 
 function importarPlano(file) {
@@ -5239,43 +5287,158 @@ function importarPlano(file) {
         return;
       }
       const todas = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
-      // Encontrar cabeçalho
-      let headerIdx = -1;
-      for (let i = 0; i < todas.length; i++) {
-        if (todas[i].some(c => String(c).trim() === 'Semana')) { headerIdx = i; break; }
-      }
-      if (headerIdx < 0) { mostrarPlanStatus('❌ Cabeçalho não encontrado na planilha.', 'var(--red)'); return; }
 
-      const headers  = todas[headerIdx].map(h => String(h).trim());
-      const dataRows = todas.slice(headerIdx + 1);
+      // [Port-Calendario] ─── Normalização tolerante de cabeçalhos ──────
+      // lowercase + remove diacríticos + colapsa espaços + trim
+      const normHeader = s => String(s||'')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+      // Extrai o que está fora dos parênteses ("Volume (km)" → "volume")
+      // e o que está dentro ("(km)" → "km"). Útil quando o qualificador
+      // entre parênteses carrega o sinônimo verdadeiro.
+      const splitHeader = norm => {
+        const dentro = [];
+        const fora = norm.replace(/\(([^)]*)\)/g, (_, m) => { dentro.push(m.trim()); return ' '; })
+                         .replace(/\s+/g, ' ').trim();
+        return { fora, dentro };
+      };
+      // Sinônimos por campo lógico — match por prefixo normalizado.
+      // Ex.: "SEMANA (número)" → norm "semana (numero)" → startsWith("semana") ✓
+      const SINONIMOS = {
+        semana:   ['semana', 'sem.', 'sem ', 'microciclo', 'micro', 'week', 'wk', 'n semana', 'nº semana', 'no semana'],
+        dia:      ['dia'],
+        treino:   ['treino planejado', 'treino', 'sessao', 'sessão', 'workout', 'descricao', 'descrição'],
+        objetivo: ['objetivo', 'objetivo fisiologico', 'objetivo fisiológico', 'foco', 'goal'],
+        km:       ['km planejados', 'km plan', 'km (distancia)', 'km (distância)', 'km', 'distancia', 'distância', 'volume km'],
+        carga:    ['carga planejada', 'carga ua', 'carga (ua)', 'carga', 'trimp', 'load'],
+        zona:     ['zona', 'zone', 'intensidade'],
+        fc:       ['fc alvo', 'fc-alvo', 'fc', 'frequencia cardiaca', 'frequência cardíaca', 'bpm alvo', 'bpm', 'hr alvo', 'hr'],
+        tempo:    ['duracao', 'duração', 'tempo previsto', 'tempo', 'minutos', 'min', 'duration'],
+        obs:      ['observacao', 'observação', 'observacoes', 'observações', 'obs', 'instrucao', 'instrução', 'notas', 'nota', 'comentario', 'comentário'],
+      };
+      // Casa um header normalizado contra os sinônimos do campo.
+      const matchCampo = (headerNorm, campo) => {
+        const sins = SINONIMOS[campo];
+        const ordenadas = [...sins].sort((a,b) => b.length - a.length);
+        const { fora, dentro } = splitHeader(headerNorm);
+        // a) match por prefixo na parte de fora
+        if (ordenadas.some(s => fora === s || fora.startsWith(s + ' '))) return true;
+        // b) match exato no conteúdo entre parênteses
+        if (dentro.some(d => ordenadas.includes(d))) return true;
+        return false;
+      };
+
+      // ─── Localizar linha do cabeçalho (varre primeiras 15 linhas) ───
+      let headerIdx = -1;
+      const limiteVarredura = Math.min(todas.length, 15);
+      for (let i = 0; i < limiteVarredura; i++) {
+        const linhaNorm = todas[i].map(normHeader);
+        const temSemana = linhaNorm.some(h => matchCampo(h, 'semana'));
+        const temDia    = linhaNorm.some(h => matchCampo(h, 'dia'));
+        if (temSemana && temDia) { headerIdx = i; break; }
+      }
+      if (headerIdx < 0) {
+        mostrarPlanStatus('❌ Cabeçalho não encontrado. Esperado colunas com "Semana" e "Dia" nas primeiras 15 linhas.', 'var(--red)');
+        return;
+      }
+
+      // ─── Mapear índice de cada campo lógico → coluna da planilha ────
+      const mapearCampos = (linhaHeadersNorm) => {
+        const mapa = {};
+        Object.keys(SINONIMOS).forEach(campo => {
+          mapa[campo] = linhaHeadersNorm.findIndex(h => matchCampo(h, campo));
+        });
+        const totalAchados = Object.values(mapa).filter(i => i >= 0).length;
+        return { mapa, totalAchados };
+      };
+
+      // Tentativa 1: cabeçalho de uma linha só (caso comum)
+      const headersNormA = todas[headerIdx].map(normHeader);
+      const tentA = mapearCampos(headersNormA);
+
+      // Heurística: se faltam campos E existe linha seguinte, tenta mesclar.
+      // Adota a fusão SOMENTE se ela encontrar estritamente mais campos.
+      const TOTAL_CAMPOS = Object.keys(SINONIMOS).length;
+      let idxDe         = tentA.mapa;
+      let dataStartIdx  = headerIdx + 1;
+      let headerMultilinha = false;
+
+      if (tentA.totalAchados < TOTAL_CAMPOS && headerIdx + 1 < todas.length) {
+        const linhaA = todas[headerIdx]     || [];
+        const linhaB = todas[headerIdx + 1] || [];
+        const colsMax = Math.max(linhaA.length, linhaB.length);
+        const fundidos = [];
+        for (let c = 0; c < colsMax; c++) {
+          const a = String(linhaA[c] || '').trim();
+          const b = String(linhaB[c] || '').trim();
+          fundidos.push(a && b ? `${a} ${b}` : (a || b));
+        }
+        const headersNormB = fundidos.map(normHeader);
+        const tentB = mapearCampos(headersNormB);
+        if (tentB.totalAchados > tentA.totalAchados) {
+          idxDe            = tentB.mapa;
+          dataStartIdx     = headerIdx + 2;
+          headerMultilinha = true;
+        }
+      }
+
+      const dataRows = todas.slice(dataStartIdx);
       const resultado = [];
 
       dataRows.forEach(row => {
-        const get = col => { const i = headers.indexOf(col); return i >= 0 ? row[i] : ''; };
-        const sem  = Number(get('Semana')) || 0;
-        const dia  = String(get('Dia') || '').trim();
+        const cell = campo => idxDe[campo] >= 0 ? row[idxDe[campo]] : '';
+        // Aceita "5", 5, " 5 ", rejeita "Bloco S5–S8 ..." (rodapé)
+        const semRaw = String(cell('semana') || '').trim();
+        const sem    = /^\d+$/.test(semRaw) ? Number(semRaw) : 0;
+        const dia    = String(cell('dia') || '').trim();
         if (!sem || !dia) return;
+        // Zona + FC podem vir juntas ou separadas — concatena se ambas.
+        const zonaRaw = String(cell('zona') || '').trim();
+        const fcRaw   = String(cell('fc')   || '').trim();
+        const zonaCombinada = (zonaRaw && fcRaw && zonaRaw !== fcRaw)
+          ? `${zonaRaw} · ${fcRaw}`
+          : (zonaRaw || fcRaw);
         resultado.push({
           semana:  sem,
           dia,
-          treino:  String(get('Treino Planejado') || '').trim(),
-          objetivo:String(get('Objetivo') || '').trim(),
-          km:      Number(get('Km\nPlanejados') || get('Km Planejados') || get('Km')) || 0,
-          carga:   Number(get('Carga\nPlanejada') || get('Carga Planejada') || get('Carga')) || 0,
-          zona:    String(get('Zona / FC Alvo') || '').trim(),
-          tempo:   Number(get('Tempo Previsto\n(min)') || get('Tempo Previsto') || get('Tempo')) || 0,
-          obs:     String(get('Observação / Instrução') || get('Observação') || '').trim(),
+          treino:  String(cell('treino')   || '').trim(),
+          objetivo:String(cell('objetivo') || '').trim(),
+          km:      Number(cell('km'))    || 0,
+          carga:   Number(cell('carga')) || 0,
+          zona:    zonaCombinada,
+          tempo:   Number(cell('tempo')) || 0,
+          obs:     String(cell('obs') || '').trim(),
         });
       });
 
       _planoImportado = resultado;
+
+      // ─── Captura ordem dos dias da PRIMEIRA semana importada ────────
+      const DIAS_VALIDOS = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+      const primeiraSem = resultado.length > 0 ? Math.min(...resultado.map(r => r.semana)) : 1;
+      const diasOrdenados = resultado
+        .filter(r => r.semana === primeiraSem)
+        .map(r => r.dia);
+      const diasUnicos = [...new Set(diasOrdenados)].filter(d => DIAS_VALIDOS.includes(d));
+      const ordemCompleta = diasUnicos.length === 7
+        ? diasUnicos
+        : ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg']; // fallback legado
+      _planoImportadoMeta = { ordemDias: ordemCompleta, primeiraSem };
+
       const sems = [...new Set(resultado.map(r=>r.semana))];
       const kmTotal = resultado.reduce((s,r) => s + r.km, 0);
 
       document.getElementById('plan-sem-count').textContent  = sems.length;
       document.getElementById('plan-sess-count').textContent = resultado.filter(r=>r.treino && r.treino !== 'Descanso').length;
       document.getElementById('plan-km-count').textContent   = kmTotal.toFixed(0) + ' km';
-      document.getElementById('plan-avisos').innerHTML       = resultado.length === 0 ? '⚠️ Nenhuma linha com dados encontrada.' : '';
+      // Aviso composto
+      const avisoVazio = resultado.length === 0 ? '⚠️ Nenhuma linha com dados encontrada.' : '';
+      const avisoMulti = (headerMultilinha && resultado.length > 0)
+        ? '<span style="color:var(--muted);font-size:10px">ℹ︎ Cabeçalho de 2 linhas detectado e mesclado automaticamente.</span>'
+        : '';
+      document.getElementById('plan-avisos').innerHTML       = avisoVazio || avisoMulti;
       document.getElementById('planPreview').style.display   = 'block';
       document.getElementById('planStatus').style.display    = 'none';
     } catch(err) {
@@ -5316,7 +5479,7 @@ async function confirmarPlano() {
         <div style="margin-top:4px">📁 <strong>Ciclo atual:</strong> ${getCicloAtual()} → <strong style="color:var(--accent)">${getCicloAtual()+1}</strong></div>
       </div>
       <div class="acao-grid">
-        <button class="acao-btn" onclick="executarAtualizacaoPlano(true)">
+        <button class="acao-btn" onclick="pedirAncoraEContinuar()">
           <span class="acao-icon">🔄</span>
           <div class="acao-info">
             <div class="acao-titulo">Substituir e iniciar Ciclo ${getCicloAtual()+1}</div>
@@ -5339,7 +5502,80 @@ async function confirmarPlano() {
   executarAtualizacaoPlano(false);
 }
 
-function executarAtualizacaoPlano(substituir) {
+// [Port-Calendario] Modal intermediário: pergunta a data-âncora do novo ciclo.
+// Sugestão automática = próxima ocorrência do primeiro dia da planilha a partir de hoje.
+function pedirAncoraEContinuar() {
+  const meta = _planoImportadoMeta;
+  if (!meta || !meta.ordemDias) {
+    // Fallback: se metadata ausente por algum motivo, executa direto sem âncora nova
+    console.warn('Metadata da importação ausente — executando sem âncora nova.');
+    executarAtualizacaoPlano(true, null);
+    return;
+  }
+  const primeiroDia = meta.ordemDias[0];
+  const primeiraSem = meta.primeiraSem;
+  // Sugestão: próxima ocorrência de primeiroDia a partir de hoje
+  const DIAS_JS = { 'Dom':0,'Seg':1,'Ter':2,'Qua':3,'Qui':4,'Sex':5,'Sáb':6 };
+  const alvoJsDay = DIAS_JS[primeiroDia] ?? 1;
+  const hoje = new Date();
+  hoje.setHours(12,0,0,0);
+  let sugestao = new Date(hoje);
+  let tentativas = 0;
+  while (sugestao.getDay() !== alvoJsDay && tentativas++ < 7) {
+    sugestao.setDate(sugestao.getDate() + 1);
+  }
+  const sugestaoStr = sugestao.toISOString().slice(0,10);
+
+  document.getElementById('modalTitle').textContent = '📅 Data de início do novo ciclo';
+  document.getElementById('modalBody').innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.7">
+      A planilha começa em <strong style="color:var(--text)">S${primeiraSem} / ${primeiroDia}</strong>.
+      Em qual data esse primeiro treino deve cair?
+    </div>
+    <div style="background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:12px;margin-bottom:14px;font-size:11px">
+      <div style="margin-bottom:6px"><strong>Ordem dos dias detectada:</strong> ${meta.ordemDias.join(' → ')}</div>
+      <div style="color:var(--muted)">Sugestão: próxima ${primeiroDia} a partir de hoje.</div>
+    </div>
+    <div class="fgroup" style="margin-bottom:14px">
+      <label>Data de S${primeiraSem} / ${primeiroDia}</label>
+      <input type="date" id="ancoraDataInput" value="${sugestaoStr}" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--b1);border-radius:4px;color:var(--text);font-size:13px">
+    </div>
+    <div class="acao-grid">
+      <button class="acao-btn" onclick="confirmarAncoraEExecutar()">
+        <span class="acao-icon">✅</span>
+        <div class="acao-info">
+          <div class="acao-titulo">Confirmar e iniciar novo ciclo</div>
+          <div class="acao-desc">As datas dos treinos serão calculadas a partir desta âncora</div>
+        </div>
+      </button>
+      <button class="acao-btn" onclick="closeModal()">
+        <span class="acao-icon">❌</span>
+        <div class="acao-info">
+          <div class="acao-titulo">Cancelar</div>
+          <div class="acao-desc">Volta ao preview sem aplicar mudanças</div>
+        </div>
+      </button>
+    </div>`;
+  // openModal já está aberto (vem do modal anterior); só atualiza conteúdo
+}
+
+function confirmarAncoraEExecutar() {
+  const dataInput = document.getElementById('ancoraDataInput');
+  if (!dataInput || !dataInput.value) {
+    toast('Selecione uma data', true);
+    return;
+  }
+  const meta = _planoImportadoMeta;
+  const ancora = {
+    ancoraSem:  meta.primeiraSem,
+    ancoraDia:  meta.ordemDias[0],
+    ancoraData: dataInput.value,
+    ordemDias:  meta.ordemDias
+  };
+  executarAtualizacaoPlano(true, ancora);
+}
+
+function executarAtualizacaoPlano(substituir, ancora) {
   closeModal();
   document.getElementById('planPreview').style.display = 'none';
   mostrarPlanStatus('⏳ Salvando planejamento...', 'var(--muted)');
@@ -5352,8 +5588,8 @@ function executarAtualizacaoPlano(substituir) {
   let novoPlano, novoCiclo = getCicloAtual(), semsSubst = [];
 
   if (substituir && semsRevisadas.length > 0) {
-    // Iniciar novo ciclo
-    novoCiclo = iniciarNovoCiclo(semsRevisadas);
+    // [Port-Calendario] Iniciar novo ciclo (com âncora se fornecida)
+    novoCiclo = iniciarNovoCiclo(semsRevisadas, ancora);
     semsSubst = semsRevisadas;
 
     // Limpar _reagend e _ignorados das semanas substituídas
@@ -5404,6 +5640,7 @@ function executarAtualizacaoPlano(substituir) {
   mostrarPlanStatus(aviso, cor);
 
   _planoImportado = [];
+  _planoImportadoMeta = null;
   document.getElementById('planUploadInput').value = '';
   renderPlanoTab();
   atualizarKPIs();
@@ -5412,6 +5649,7 @@ function executarAtualizacaoPlano(substituir) {
 
 function cancelarPlano() {
   _planoImportado = [];
+  _planoImportadoMeta = null;
   document.getElementById('planPreview').style.display = 'none';
   document.getElementById('planStatus').style.display  = 'none';
   document.getElementById('planUploadInput').value = '';
@@ -5475,8 +5713,8 @@ function renderPlanoTab() {
   // ── Grade calendário 7 colunas ───────────────────────────
   html += `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px">`;
 
-  // Cabeçalho dos dias
-  const DIAS_LABEL = ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg'];
+  // [Port-Calendario] Cabeçalho dos dias — ordem vem da âncora do ciclo (Seg-primeiro vs Ter-primeiro)
+  const DIAS_LABEL = getAncoraDoCiclo(planSemSel).ordemDias;
   DIAS_LABEL.forEach(d => {
     const dataD   = gerarDataPlano(planSemSel, d);
     const diaNum  = dataD.slice(8,10);   // DD
@@ -5489,8 +5727,12 @@ function renderPlanoTab() {
     </div>`;
   });
 
-  // Células de cada dia
-  sessoes.forEach(r => {
+  // [Port-Calendario] Células de cada dia — itera na ordem do DIAS_LABEL para garantir
+  // alinhamento visual com o cabeçalho (independente da ordem de inserção no plano).
+  const sessoesPorDia = {};
+  sessoes.forEach(r => { sessoesPorDia[r.dia] = r; });
+  const sessoesOrdenadas = DIAS_LABEL.map(d => sessoesPorDia[d]).filter(Boolean);
+  sessoesOrdenadas.forEach(r => {
     const slotKey    = `${r.semana}_${r.dia}`;
     const igKey      = `${r.semana}_${r.dia}_${r.treino}`;
     // Debug S2/Sex
@@ -7131,7 +7373,8 @@ function buildDashContext() {
     const aderSem   = kmPlanSem>0 ? Math.round((kmRealSem/kmPlanSem)*100) : 0;
     linhas.push(`Volume: ${kmRealSem.toFixed(1)}km / ${kmPlanSem}km planejados (${aderSem}% aderência)`);
     if (forcaSem.length>0) linhas.push(`Força: ${forcaSem.map(f=>f.tipo||'Treino').join(', ')}`);
-    const DIAS_SEQ = ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg'];
+    // [Port-Calendario] Ordem dos dias respeita o ciclo da semana atual
+    const DIAS_SEQ = getAncoraDoCiclo(semAtual).ordemDias;
     const resumoDias = DIAS_SEQ.map(dia => {
       const pl=plano.find(p=>Number(p.semana)===semAtual&&p.dia===dia);
       const re=logSem.filter(l=>l.dia===dia);
@@ -7630,13 +7873,10 @@ function limparReagendObsoletos(silencioso = false) {
   // Se _reagend['2_Qua'] = '2026-04-06' e dataOrig(2,Qua) = '2026-04-08' → delta = -2
 
   const keysRemover = new Set();
-  const PLANO_INICIO_LOCAL = '2026-03-31';
-  const DIAS_MAP = {'Ter':0,'Qua':1,'Qui':2,'Sex':3,'Sáb':4,'Dom':5,'Seg':6};
 
+  // [Port-Calendario] dataOrigLocal delega para gerarDataPlano (sem hardcoded)
   function dataOrigLocal(sem, dia) {
-    const base = new Date(PLANO_INICIO_LOCAL + 'T12:00:00');
-    base.setDate(base.getDate() + (sem-1)*7 + (DIAS_MAP[dia]??0));
-    return base.toISOString().slice(0,10);
+    return gerarDataPlano(sem, dia);
   }
 
   // Coletar todos os deltas das cascatas ativas
@@ -7822,8 +8062,8 @@ function mostrarDiagLS() {
 
   txt += `\n=== HOJE: ${diagHoje} | Semana: ${diagSem} | Dia: ${dataToDia(diagHoje)} ===\n`;
 
-  // Verificar slots críticos
-  const DIAS_PLAN = ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg'];
+  // [Port-Calendario] Ordem dos dias respeita o ciclo
+  const DIAS_PLAN = getAncoraDoCiclo(diagSem).ordemDias;
   txt += '\n=== SLOTS SEMANA ATUAL ===\n';
   DIAS_PLAN.forEach(dia => {
     const dataSlot = gerarDataPlano(diagSem, dia);
