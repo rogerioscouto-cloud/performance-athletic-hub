@@ -648,7 +648,7 @@ input[type=range]::-webkit-slider-thumb{
     </div>
     <div class="kpi">
       <div class="kpi-lbl">Km planejados</div>
-      <div class="kpi-val" id="ov-kmplan">304<small>km</small></div>
+      <div class="kpi-val" id="ov-kmplan">—<small>km</small></div>
       <div class="kpi-delta">Total do plano</div>
     </div>
     <div class="kpi y">
@@ -3856,6 +3856,11 @@ function atualizarKPIs() {
   const totalSems = semsTotal.length || 8;
 
   setTxt('ov-km',`${kmAcc.toFixed(0)}<small>km</small>`);
+  // Km planejados — total do plano efetivo (PLANO_BASE substituído pelos uploads).
+  // Antes deste fix, o valor "304" estava hardcoded no HTML (linha do span ov-kmplan)
+  // e nunca era atualizado, então não refletia substituições de S1-S8 nem extras S9+.
+  const kmTotalPlanejado = getPlanoEfetivo().reduce((s,r) => s + (Number(r.km)||0), 0);
+  setTxt('ov-kmplan', `${kmTotalPlanejado.toFixed(0)}<small>km</small>`);
   setTxt('ov-ader',ader!==null?`${ader}<small>%</small>`:'<small style="font-size:20px">—</small>');
   setTxt('ov-carga',`${cargaTotal.toFixed(0)}<small>UA</small>`);
   setTxt('ov-efic',eficM||'—');
