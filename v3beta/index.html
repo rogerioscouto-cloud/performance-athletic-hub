@@ -8698,11 +8698,23 @@ function userDocRef(colecao) {
   return doc(db, 'users', _currentUser.uid, 'dados_beta', colecao);
 }
 
-async function fbSalvar(colecao, dados) {
+async function fbSalvar(colecao, dados, opts = {}) {
   if (!_currentUser) return;
+  // [Sub-fase 3.1] updatedAt é a defesa contra reversão de sync.
+  // Cada gravação carrega seu timestamp; carregarDadosNuvem usa
+  // esse valor para decidir qual lado é mais recente.
+  const updatedAt = Number(opts.updatedAt) || Date.now();
   try {
     mostrarSyncIndicator(true);
-    await window._fb.setDoc(userDocRef(colecao), { dados: JSON.stringify(dados) });
+    await window._fb.setDoc(userDocRef(colecao), {
+      dados: JSON.stringify(dados),
+      updatedAt,
+      versao: 1
+    });
+    // Espelha o timestamp no localStorage para uso posterior do sync
+    try {
+      localStorage.setItem(`v3beta_${colecao}_updatedAt`, String(updatedAt));
+    } catch(e) {}
   } catch(e) {
     console.error('Erro ao salvar:', colecao, e);
   } finally {
@@ -8714,8 +8726,16 @@ async function fbCarregar(colecao) {
   if (!_currentUser) return null;
   try {
     const snap = await window._fb.getDoc(userDocRef(colecao));
-    if (snap.exists()) return JSON.parse(snap.data().dados);
-    return null;
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    // [Sub-fase 3.1] Retorna envelope com timestamp.
+    // Compatibilidade com docs antigos sem updatedAt: fallback 0.
+    const dadosParsed = data.dados ? JSON.parse(data.dados) : null;
+    return {
+      dados:     dadosParsed,
+      updatedAt: Number(data.updatedAt) || 0,
+      versao:    Number(data.versao)    || 0
+    };
   } catch(e) {
     console.error('Erro ao carregar:', colecao, e);
     return null;
@@ -8752,57 +8772,160 @@ const LS_TO_FB = {
   'v3beta_lthr':             'lthr',
 };
 
-// Override lsSave: salva local E agenda sync para nuvem
+// [Sub-fase 3.1] Flag que bloqueia sync para nuvem durante boot.
+// Setada como true só depois que carregarDadosNuvem termina.
+window._syncCompleto = false;
+
+// Override lsSave: salva local (sempre) E agenda sync para nuvem (com guards)
 window.lsSave = function(key, val) {
   _lsSaveOriginal(key, val); // sempre salvar local primeiro (offline-first)
   const colecao = LS_TO_FB[key];
-  if (colecao && _currentUser) {
-    // Debounce: espera 2s após última alteração antes de enviar
-    clearTimeout(_syncTimeout);
-    _syncTimeout = setTimeout(() => fbSalvar(colecao, val), SYNC_DELAY_MS);
+  if (!colecao || !_currentUser) return;
+
+  // [Sub-fase 3.1] Gravar timestamp local da modificação
+  const ts = Date.now();
+  try {
+    localStorage.setItem(`${key}_updatedAt`, String(ts));
+  } catch(e) {}
+
+  // [Sub-fase 3.1] Durante boot, bloqueia sync para campos críticos.
+  // Isso evita que valores default sejam empurrados para nuvem
+  // antes do sync inicial baixar o estado real.
+  const camposCriticosBoot = new Set([
+    'v3beta_log', 'v3beta_plano', 'v3beta_historico_planos',
+    'v3beta_ciclo_atual', 'v3beta_reagendamentos', 'v3beta_ignorados',
+    'v3beta_forca', 'v3beta_corpo', 'v3beta_lthr'
+  ]);
+  if (!window._syncCompleto && camposCriticosBoot.has(key)) {
+    console.log(`[sync] bloqueado (boot ainda em curso): ${key}`);
+    return;
   }
+
+  // Debounce: espera 2s após última alteração antes de enviar
+  clearTimeout(_syncTimeout);
+  _syncTimeout = setTimeout(() => fbSalvar(colecao, val, { updatedAt: ts }), SYNC_DELAY_MS);
 };
 
-// ── Carregar dados da nuvem ao fazer login ────────────────────
+// [Sub-fase 3.1] Detecta sobrescrita destrutiva de chave crítica.
+// Critério: nuvem está apagando >=50% dos dados de uma coleção crítica.
+// Disparado quando ambos os lados existem mas nuvem é mais nova.
+function ehSobrescritaDestrutiva(lsKey, localVal, nuvemVal) {
+  const criticas = new Set([
+    'v3beta_log', 'v3beta_plano', 'v3beta_historico_planos',
+    'v3beta_forca', 'v3beta_corpo', 'v3beta_lthr',
+    'v3beta_reagendamentos'
+  ]);
+  if (!criticas.has(lsKey)) return false;
+  const tamanho = v => Array.isArray(v) ? v.length :
+                       (v && typeof v === 'object') ? Object.keys(v).length :
+                       (v ? 1 : 0);
+  const tLocal = tamanho(localVal);
+  const tNuvem = tamanho(nuvemVal);
+  if (tLocal === 0) return false;             // local vazio, nada a perder
+  if (tNuvem === 0) return true;              // nuvem zerou crítico
+  if (tNuvem < tLocal * 0.5) return true;     // nuvem corta >50% do local
+  return false;
+}
+
+// [Sub-fase 3.1] Carregamento inteligente da nuvem com 3 casos:
+//   (a) só nuvem tem  → BAIXAR
+//   (b) só local tem  → SUBIR
+//   (c) ambos têm     → comparar updatedAt; se conflito destrutivo, segurar
 async function carregarDadosNuvem() {
   if (!_currentUser) return;
   mostrarSyncIndicator(true);
   toast('☁ Sincronizando dados da nuvem...');
 
-  let algumDado = false;
+  let baixados = 0, subidos = 0, ignorados = 0;
+  const conflitosCriticos = [];
+
   for (const [lsKey, fbCol] of Object.entries(LS_TO_FB)) {
-    const dados = await fbCarregar(fbCol);
-    if (dados !== null) {
-      _lsSaveOriginal(lsKey, dados);
-      algumDado = true;
+    const cloudResult = await fbCarregar(fbCol);
+    const localValRaw = localStorage.getItem(lsKey);
+    const localTs     = Number(localStorage.getItem(`${lsKey}_updatedAt`) || 0);
+
+    // Caso A: nuvem vazia, local existe → SUBIR local para nuvem
+    if (!cloudResult && localValRaw !== null) {
+      try {
+        const parsed = JSON.parse(localValRaw);
+        const ts = localTs || Date.now();
+        await fbSalvar(fbCol, parsed, { updatedAt: ts });
+        subidos++;
+      } catch(e) { console.warn('[sync] falha subindo', lsKey, e); }
+      continue;
+    }
+
+    // Caso B: nuvem existe, local vazio → BAIXAR para local
+    if (cloudResult && localValRaw === null) {
+      _lsSaveOriginal(lsKey, cloudResult.dados);
+      try {
+        localStorage.setItem(`${lsKey}_updatedAt`, String(cloudResult.updatedAt || 0));
+      } catch(e) {}
+      baixados++;
+      continue;
+    }
+
+    // Caso C: ambos existem → comparar timestamps
+    if (cloudResult && localValRaw !== null) {
+      const cloudTs = cloudResult.updatedAt || 0;
+      const TOLERANCIA_MS = 5000; // 5s para clock skew
+
+      if (cloudTs > localTs + TOLERANCIA_MS) {
+        // Nuvem mais nova; checar se baixar é destrutivo
+        let localParsed = null;
+        try { localParsed = JSON.parse(localValRaw); } catch(e) {}
+        if (ehSobrescritaDestrutiva(lsKey, localParsed, cloudResult.dados)) {
+          conflitosCriticos.push({
+            lsKey, fbCol,
+            local:    localParsed,
+            nuvem:    cloudResult.dados,
+            localTs,
+            cloudTs
+          });
+          continue; // segura sem sobrescrever
+        }
+        _lsSaveOriginal(lsKey, cloudResult.dados);
+        try {
+          localStorage.setItem(`${lsKey}_updatedAt`, String(cloudTs));
+        } catch(e) {}
+        baixados++;
+      } else if (localTs > cloudTs + TOLERANCIA_MS) {
+        // Local mais novo → SUBIR
+        try {
+          const parsed = JSON.parse(localValRaw);
+          await fbSalvar(fbCol, parsed, { updatedAt: localTs });
+          subidos++;
+        } catch(e) { console.warn('[sync] falha subindo', lsKey, e); }
+      } else {
+        ignorados++;
+      }
     }
   }
-  // Sincronizar também _ignorados e _reagend em memória
+
+  // Sincronizar variáveis em memória (Set/Object) ao terminar
   try {
-    const ign = await fbCarregar('ignorados');
-    if (ign) {
-      _lsSaveOriginal('v3beta_ignorados', ign);
-      _ignorados = new Set(Array.isArray(ign) ? ign : []);
-    }
-    const reag = await fbCarregar('reagendamentos');
-    if (reag) {
-      _lsSaveOriginal('v3beta_reagendamentos', reag);
-      _reagend = typeof reag === 'object' && !Array.isArray(reag) ? reag : {};
-    }
+    const ign = JSON.parse(localStorage.getItem('v3beta_ignorados') || '[]');
+    _ignorados = new Set(Array.isArray(ign) ? ign : []);
+    const reag = JSON.parse(localStorage.getItem('v3beta_reagendamentos') || '{}');
+    _reagend = typeof reag === 'object' && !Array.isArray(reag) ? reag : {};
   } catch(e) {}
 
-  if (!algumDado) {
-    // Primeira vez na nuvem — migrar dados locais
+  // Migração one-time: se nada havia na nuvem (app na primeira vez),
+  // subir tudo do local. Detectado por baixados==0 && subidos==0 && conflitos==0
+  if (baixados === 0 && subidos === 0 && conflitosCriticos.length === 0 && ignorados === 0) {
     await migrarLocalParaNuvem();
-  } else {
+  }
+
+  console.log(`[sync] ${baixados} baixados, ${subidos} subidos, ${ignorados} ignorados, ${conflitosCriticos.length} conflitos`);
+
+  // [Sub-fase 3.1] Liberar lsSave para sync após sync inicial completo
+  window._syncCompleto = true;
+
+  if (conflitosCriticos.length > 0) {
+    abrirModalConflitoSync(conflitosCriticos);
+  } else if (baixados > 0 || subidos > 0) {
     toast('✓ Dados sincronizados!');
   }
-
-  // Recarregar estado em memória e re-renderizar tudo
-  try {
-    _ignorados = new Set(JSON.parse(localStorage.getItem('v3beta_ignorados') || '[]'));
-    _reagend   = JSON.parse(localStorage.getItem('v3beta_reagendamentos') || '{}');
-  } catch(e) {}
 
   mostrarSyncIndicator(false);
   atualizarKPIs();
@@ -8813,15 +8936,102 @@ async function carregarDadosNuvem() {
   if (rh) syncHeaderStatus(rh.status);
 }
 
+// [Sub-fase 3.1] Modal de conflito destrutivo. Lista chaves em conflito,
+// mostra resumo de tamanhos, e oferece 3 opções por conflito:
+//   • Manter local (sobrescreve nuvem)
+//   • Manter nuvem (sobrescreve local)
+//   • Decidir depois (não toca em nada)
+function abrirModalConflitoSync(conflitos) {
+  const tamanho = v => Array.isArray(v) ? v.length :
+                       (v && typeof v === 'object') ? Object.keys(v).length :
+                       (v ? 1 : 0);
+  const fmtTs = ts => ts ? new Date(ts).toLocaleString('pt-BR') : '—';
+  const labelChave = k => k.replace('v3beta_', '').replace(/_/g, ' ');
+
+  document.getElementById('modalTitle').textContent = '⚠ Conflito de sincronização detectado';
+  let html = `
+    <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:14px">
+      A nuvem tem dados que apagariam parte significativa dos dados locais.
+      Para evitar perda acidental, escolha o que fazer com cada item abaixo:
+    </div>`;
+
+  conflitos.forEach((c, i) => {
+    const tLocal = tamanho(c.local);
+    const tNuvem = tamanho(c.nuvem);
+    html += `
+      <div style="background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.25);border-radius:6px;padding:12px;margin-bottom:12px">
+        <div style="font-weight:700;color:var(--text);margin-bottom:6px;font-family:'Barlow Condensed',sans-serif;font-size:14px">${labelChave(c.lsKey)}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;font-size:11px">
+          <div><span style="color:var(--muted)">Local:</span> <strong style="color:var(--green)">${tLocal} item(s)</strong> · ${fmtTs(c.localTs)}</div>
+          <div><span style="color:var(--muted)">Nuvem:</span> <strong style="color:var(--yellow)">${tNuvem} item(s)</strong> · ${fmtTs(c.cloudTs)}</div>
+        </div>
+        <div style="display:grid;gap:6px">
+          <button class="btn btn-primary" onclick="resolverConflitoSync(${i}, 'local')">
+            ✓ Manter local (sobrescreve nuvem · preserva ${tLocal} item(s))
+          </button>
+          <button class="btn btn-ghost" onclick="resolverConflitoSync(${i}, 'nuvem')">
+            ☁ Manter nuvem (sobrescreve local · usa ${tNuvem} item(s))
+          </button>
+          <button class="btn btn-ghost" onclick="resolverConflitoSync(${i}, 'pular')">
+            ⏸ Decidir depois (não muda nada agora)
+          </button>
+        </div>
+      </div>`;
+  });
+
+  html += `<div style="text-align:center;margin-top:8px">
+    <button class="btn btn-ghost" onclick="closeModal()" style="font-size:10px;color:var(--muted)">
+      Fechar (mesmo efeito de "decidir depois")
+    </button>
+  </div>`;
+
+  // Guardar conflitos no escopo global para os handlers acessarem
+  window._conflitosSyncPendentes = conflitos;
+  document.getElementById('modalBody').innerHTML = html;
+  openModal();
+}
+
+async function resolverConflitoSync(idx, escolha) {
+  const conflitos = window._conflitosSyncPendentes || [];
+  const c = conflitos[idx];
+  if (!c) return;
+  if (escolha === 'local') {
+    const ts = Date.now();
+    await fbSalvar(c.fbCol, c.local, { updatedAt: ts });
+    toast(`${c.lsKey}: nuvem sobrescrita com versão local.`);
+  } else if (escolha === 'nuvem') {
+    _lsSaveOriginal(c.lsKey, c.nuvem);
+    try {
+      localStorage.setItem(`${c.lsKey}_updatedAt`, String(c.cloudTs));
+    } catch(e) {}
+    toast(`${c.lsKey}: local sobrescrito com versão da nuvem.`);
+    atualizarKPIs(); renderOverview();
+    if (typeof renderPlanoTab === 'function') renderPlanoTab();
+  } else {
+    toast(`${c.lsKey}: nada alterado. Decida depois.`);
+  }
+  // Marca como resolvido (remove dos pendentes para não re-disparar)
+  conflitos.splice(idx, 1);
+  if (conflitos.length === 0) {
+    closeModal();
+    window._conflitosSyncPendentes = null;
+  } else {
+    abrirModalConflitoSync(conflitos);
+  }
+}
+
 async function migrarLocalParaNuvem() {
+  // [Sub-fase 3.1] Migração one-time: sobe local para nuvem com timestamp atual,
+  // e marca timestamps no localStorage para futuros syncs comparativos.
   toast('📤 Migrando seus dados para a nuvem...');
   let migrados = 0;
+  const ts = Date.now();
   for (const [lsKey, fbCol] of Object.entries(LS_TO_FB)) {
     const localVal = localStorage.getItem(lsKey);
     if (localVal) {
       try {
         const parsed = JSON.parse(localVal);
-        await fbSalvar(fbCol, parsed);
+        await fbSalvar(fbCol, parsed, { updatedAt: ts });
         migrados++;
       } catch(e) {}
     }
