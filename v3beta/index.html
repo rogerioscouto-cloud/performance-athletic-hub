@@ -1860,6 +1860,24 @@ input[type=range]::-webkit-slider-thumb{
       </div>
 
       <div class="card">
+        <div class="card-title">Modo de vinculação de treinos</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">
+          Como o app deve decidir a qual slot do plano um treino registrado pertence.
+          <strong style="color:var(--text)">Manual</strong> (recomendado): você escolhe explicitamente em modal único.
+          <strong style="color:var(--text)">Automático</strong>: sistema tenta detectar (cascata, inversão, etc) — comportamento legado.
+        </div>
+        <div style="display:flex;gap:8px">
+          <button id="btn-modo-manual" class="btn btn-ghost btn-full" onclick="setModoVinculacao(true)" style="flex:1">
+            <span style="font-weight:700">📌 Modo Manual</span>
+          </button>
+          <button id="btn-modo-auto" class="btn btn-ghost btn-full" onclick="setModoVinculacao(false)" style="flex:1">
+            <span style="font-weight:700">🤖 Modo Auto (legado)</span>
+          </button>
+        </div>
+        <div id="modo-vinc-atual" style="margin-top:8px;font-size:10px;text-align:center;color:var(--muted)"></div>
+      </div>
+
+      <div class="card">
         <div class="card-title">Reagendamentos e cascata</div>
         <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">
           Mantém a lógica de detecção de desvio alinhada com o plano atual.
@@ -2292,6 +2310,17 @@ async function salvarLog() {
   }
 
   const deteccao = detectarDivergencia(reg);
+
+  // [Sub-fase 3.2] Modo manual: em vez de auto-detectar e abrir modais
+  // de cascata/inversão, abre modal único pedindo escolha explícita.
+  // Flag persistida em config; default true (modo manual ativo).
+  if (window._modoManual !== false) {
+    const candidatos = acharCandidatosVinculacao(reg);
+    _regPendente = reg;
+    abrirModalVincularLog(reg, candidatos);
+    return;
+  }
+
   if (deteccao) {
     _regPendente = reg;
     mostrarModalInteligente(deteccao);
@@ -2305,6 +2334,251 @@ async function salvarLog() {
 //  MOTOR DE INTELIGÊNCIA — TREINOS
 // ═══════════════════════════════════════
 let _regPendente = null;
+
+// ═══════════════════════════════════════════════════════════════
+// [Sub-fase 3.2] MODO MANUAL DE VINCULAÇÃO
+// ═══════════════════════════════════════════════════════════════
+// Substitui o roteador de modais antigos (atrasado/adiantado/inversão/
+// duplo/slot abandonado) por um modal único onde o usuário escolhe
+// explicitamente a qual slot do plano o registro pertence.
+//
+// Funções:
+//   acharCandidatosVinculacao(reg)  — busca slots prováveis, ordena
+//   abrirModalVincularLog(reg, c)   — modal com sugestão + lista
+//   vincularLogACandidato(idx)      — handler: vincula e salva
+//   salvarComoExtra()               — handler: salva sem vínculo
+//   pularVinculacao()               — handler: salva sem vínculo, sem extra
+//   cancelarSalvamento()            — handler: descarta
+// ═══════════════════════════════════════════════════════════════
+
+window._candidatosPendentes = null;
+
+// Acha slots candidatos. Retorna array ordenado:
+// 1º — sugestão automática (data exata bate com slot)
+// 2º — outros slots da semana atual sem cumprimento
+// 3º — slots de semanas próximas (anterior/próxima) sem cumprimento
+function acharCandidatosVinculacao(reg) {
+  const planoEf = getPlanoEfetivo();
+  const log     = getLog();
+
+  // Set de slots já cumpridos (para excluir da lista)
+  const cumpridos = new Set();
+  log.forEach(l => {
+    if (l.id !== reg.id && l.planSemana && l.planDia) {
+      cumpridos.add(`${l.planSemana}_${l.planDia}`);
+    }
+  });
+
+  // Anotar cada slot do plano com data e flag de cumprimento
+  const slotsAnotados = planoEf
+    .filter(p => p.km > 0 || /forc/i.test(p.treino || ''))
+    .map(p => ({
+      semana: Number(p.semana),
+      dia:    p.dia,
+      treino: p.treino || '',
+      km:     Number(p.km) || 0,
+      tempo:  Number(p.tempo) || 0,
+      data:   gerarDataPlano(Number(p.semana), p.dia),
+      cumprido: cumpridos.has(`${p.semana}_${p.dia}`)
+    }))
+    .filter(s => !s.cumprido);
+
+  // Sugestão: slot na MESMA data do registro
+  const sugestao = slotsAnotados.find(s => s.data === reg.data);
+
+  // Outros candidatos: ordenar por proximidade de data
+  const outros = slotsAnotados
+    .filter(s => s !== sugestao)
+    .map(s => ({
+      ...s,
+      diasDeDistancia: Math.abs(
+        (new Date(s.data + 'T12:00:00') - new Date(reg.data + 'T12:00:00')) / 86400000
+      )
+    }))
+    .sort((a, b) => a.diasDeDistancia - b.diasDeDistancia)
+    .slice(0, 8); // limita a 8 alternativas mais próximas
+
+  return { sugestao, outros };
+}
+
+// Renderiza o modal Layout A com sugestão destacada + lista de alternativas
+function abrirModalVincularLog(reg, candidatos) {
+  window._candidatosPendentes = candidatos;
+  const { sugestao, outros } = candidatos;
+
+  const dataFmt = reg.data.split('-').reverse().join('/');
+  const tituloLog = `${reg.treino || 'Treino'} · ${(reg.km || 0).toFixed ? (reg.km || 0).toFixed(reg.km < 10 ? 1 : 0) : reg.km}${reg.km < 10 ? '' : 'km'}`;
+
+  document.getElementById('modalTitle').textContent = '🔗 Vincular treino ao plano';
+
+  let html = `
+    <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:14px">
+      Você acabou de registrar <strong style="color:var(--text)">${tituloLog}</strong> em <strong style="color:var(--text)">${dataFmt}</strong>.
+      A qual slot do plano corresponde?
+    </div>`;
+
+  // Bloco de sugestão (se houver)
+  if (sugestao) {
+    const dataSug = sugestao.data.split('-').reverse().join('/');
+    const labelSug = sugestao.km > 0
+      ? `${sugestao.treino} · ${sugestao.km}km`
+      : `${sugestao.treino}${sugestao.tempo ? ' · ' + sugestao.tempo + 'min' : ''}`;
+    html += `
+      <div style="font-size:9px;color:var(--accent);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">
+        ⭐ Sugerido (data exata)
+      </div>
+      <button class="btn btn-primary" style="width:100%;text-align:left;padding:12px 14px;line-height:1.4;margin-bottom:12px"
+        onclick="vincularLogACandidato('sugestao')">
+        <div style="font-weight:700;font-size:13px;margin-bottom:2px">${labelSug}</div>
+        <div style="font-size:10px;opacity:.85">S${sugestao.semana} / ${sugestao.dia} · ${dataSug}</div>
+      </button>`;
+  }
+
+  // Bloco de outras opções
+  if (outros.length > 0) {
+    html += `
+      <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">
+        Outros slots disponíveis
+      </div>
+      <div style="display:grid;gap:6px;max-height:220px;overflow-y:auto;margin-bottom:12px">`;
+    outros.forEach((s, i) => {
+      const dataS = s.data.split('-').reverse().join('/');
+      const labelS = s.km > 0
+        ? `${s.treino} · ${s.km}km`
+        : `${s.treino}${s.tempo ? ' · ' + s.tempo + 'min' : ''}`;
+      const dist = s.diasDeDistancia === 0
+        ? ''
+        : (s.data > reg.data
+            ? ` · ${s.diasDeDistancia}d depois`
+            : ` · ${s.diasDeDistancia}d antes`);
+      html += `
+        <button class="btn btn-ghost" style="text-align:left;padding:10px 12px;line-height:1.4"
+          onclick="vincularLogACandidato(${i})">
+          <div style="font-weight:600;font-size:12px;color:var(--text)">${labelS}</div>
+          <div style="font-size:10px;color:var(--muted)">S${s.semana} / ${s.dia} · ${dataS}${dist}</div>
+        </button>`;
+    });
+    html += `</div>`;
+  }
+
+  // Opções alternativas
+  html += `
+    <div style="border-top:1px solid var(--b1);padding-top:10px;display:grid;gap:6px">
+      <button class="btn btn-ghost" style="text-align:left;padding:10px 12px;line-height:1.4"
+        onclick="salvarComoExtra()">
+        <div style="font-weight:600;font-size:12px">➕ Treino extra (sem vincular)</div>
+        <div style="font-size:10px;color:var(--muted)">Salva o registro mas não cumpre slot algum do plano</div>
+      </button>
+      <button class="btn btn-ghost" style="text-align:left;padding:10px 12px;line-height:1.4"
+        onclick="pularVinculacao()">
+        <div style="font-weight:600;font-size:12px">⏭ Pular — decido depois</div>
+        <div style="font-size:10px;color:var(--muted)">Salva sem vínculo, você pode vincular depois manualmente</div>
+      </button>
+      <button class="btn btn-ghost" onclick="cancelarSalvamento()" style="font-size:10px;color:var(--muted);padding:8px">
+        ❌ Cancelar — não salvar
+      </button>
+    </div>`;
+
+  document.getElementById('modalBody').innerHTML = html;
+  openModal();
+}
+
+// Vincula o registro pendente a um slot escolhido
+function vincularLogACandidato(idxOrSugestao) {
+  const c = window._candidatosPendentes;
+  if (!c || !_regPendente) { closeModal(); return; }
+  const slot = (idxOrSugestao === 'sugestao')
+    ? c.sugestao
+    : c.outros[Number(idxOrSugestao)];
+  if (!slot) { closeModal(); return; }
+
+  // Determinar status pela diferença de data
+  const dataReg = new Date(_regPendente.data + 'T12:00:00');
+  const dataSlot = new Date(slot.data + 'T12:00:00');
+  const delta = Math.round((dataReg - dataSlot) / 86400000);
+  let status;
+  if (delta === 0) status = 'no_prazo';
+  else if (delta < 0) status = 'adiantado';
+  else status = 'atrasado';
+
+  _regPendente.planSemana  = slot.semana;
+  _regPendente.planDia     = slot.dia;
+  _regPendente.statusPlano = status;
+  _salvarRegNoLog(_regPendente);
+
+  closeModal();
+  window._candidatosPendentes = null;
+  _finalizarUI(status);
+
+  const dataFmt = slot.data.split('-').reverse().join('/');
+  const labelStatus = status === 'adiantado' ? `adiantado ${Math.abs(delta)}d` :
+                       status === 'atrasado'  ? `atrasado ${delta}d` : 'no prazo';
+  toast(`✓ Vinculado a S${slot.semana}/${slot.dia} (${dataFmt}) · ${labelStatus}`);
+}
+
+// Salva como treino extra (sem planSemana/planDia)
+function salvarComoExtra() {
+  if (!_regPendente) { closeModal(); return; }
+  _regPendente.planSemana  = null;
+  _regPendente.planDia     = null;
+  _regPendente.statusPlano = 'extra';
+  _salvarRegNoLog(_regPendente);
+  closeModal();
+  window._candidatosPendentes = null;
+  _finalizarUI('extra');
+  toast('➕ Treino extra registrado');
+}
+
+// Salva sem vincular nem marcar como extra (decisão depois)
+function pularVinculacao() {
+  if (!_regPendente) { closeModal(); return; }
+  _regPendente.planSemana  = null;
+  _regPendente.planDia     = null;
+  _regPendente.statusPlano = 'no_prazo';
+  _salvarRegNoLog(_regPendente);
+  closeModal();
+  window._candidatosPendentes = null;
+  _finalizarUI('no_prazo');
+  toast('⏭ Salvo sem vínculo · você pode vincular depois');
+}
+
+// Cancela salvamento
+function cancelarSalvamento() {
+  closeModal();
+  window._candidatosPendentes = null;
+  _regPendente = null;
+  toast('❌ Cancelado');
+}
+
+// [Sub-fase 3.2] Toggle de modo de vinculação. Persiste em LS.CFG.modoManual.
+function setModoVinculacao(manual) {
+  window._modoManual = !!manual;
+  try {
+    const c = JSON.parse(localStorage.getItem(LS.CFG) || '{}');
+    c.modoManual = !!manual;
+    lsSave(LS.CFG, c);
+  } catch(e) {}
+  atualizarBotoesModoVinc();
+  toast(manual ? '📌 Modo manual ativado' : '🤖 Modo automático ativado (legado)');
+}
+
+function atualizarBotoesModoVinc() {
+  const btnM = document.getElementById('btn-modo-manual');
+  const btnA = document.getElementById('btn-modo-auto');
+  const lbl  = document.getElementById('modo-vinc-atual');
+  if (!btnM || !btnA || !lbl) return;
+  const ehManual = window._modoManual !== false;
+  btnM.style.background = ehManual ? 'rgba(0,212,255,.15)' : '';
+  btnM.style.borderColor = ehManual ? 'var(--accent)' : '';
+  btnA.style.background = !ehManual ? 'rgba(245,158,11,.15)' : '';
+  btnA.style.borderColor = !ehManual ? 'var(--yellow)' : '';
+  lbl.textContent = ehManual
+    ? '✓ Manual ativo · ao registrar treino, modal pedirá vinculação'
+    : '⚠ Auto ativo · sistema tenta detectar e dispara cascata (legado)';
+}
+
+// [Sub-fase 3.2] FIM
+//
 
 // ── Commit final do log com status ───────────────────────
 function _commitLog(reg, status) {
@@ -7248,7 +7522,7 @@ function calcPrevisao() {
 //  CONFIG
 // ═══════════════════════════════════════
 function salvarCfg(){salvarCfg_({fcBase:parseInt(document.getElementById('cfg-fc').value)||60,metaAder:parseInt(document.getElementById('cfg-ader').value)||90,fadigaY:parseInt(document.getElementById('cfg-fy').value)||6,fadigaR:parseInt(document.getElementById('cfg-fr').value)||8});}
-function carregarCfg(){const c=getCfg();document.getElementById('cfg-fc').value=c.fcBase;document.getElementById('cfg-ader').value=c.metaAder;document.getElementById('cfg-fy').value=c.fadigaY;document.getElementById('cfg-fr').value=c.fadigaR;}
+function carregarCfg(){const c=getCfg();document.getElementById('cfg-fc').value=c.fcBase;document.getElementById('cfg-ader').value=c.metaAder;document.getElementById('cfg-fy').value=c.fadigaY;document.getElementById('cfg-fr').value=c.fadigaR;atualizarBotoesModoVinc();}
 // ═══════════════════════════════════════
 //  EXPORTAÇÃO CSV
 // ═══════════════════════════════════════
@@ -8775,6 +9049,15 @@ const LS_TO_FB = {
 // [Sub-fase 3.1] Flag que bloqueia sync para nuvem durante boot.
 // Setada como true só depois que carregarDadosNuvem termina.
 window._syncCompleto = false;
+
+// [Sub-fase 3.2] Flag que ativa o modo manual de vinculação.
+// Default true (manual). Salvo em LS.CFG.modoManual para persistir.
+window._modoManual = (function() {
+  try {
+    const c = JSON.parse(localStorage.getItem(LS.CFG) || '{}');
+    return c.modoManual !== false; // default true se não definido
+  } catch(e) { return true; }
+})();
 
 // Override lsSave: salva local (sempre) E agenda sync para nuvem (com guards)
 window.lsSave = function(key, val) {
