@@ -6493,6 +6493,10 @@ function abrirDetDia(cel, dia, semStr, statusCor, event) {
       const dataIso = dataDesteDia;
       acoes = `
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b1);display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="abrirMoverTreino('${sem}','${dia}','${(p?.treino||'').replace(/'/g,"\\'")}')"
+            style="font-size:10px;padding:4px 10px;border-radius:4px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer">
+            📅 Mover este treino
+          </button>
           <button onclick="marcarIgnoradoPlano('${sem}','${dia}','${(p?.treino||'').replace(/'/g,"\\'")}')"
             style="font-size:10px;padding:4px 10px;border-radius:4px;border:1px solid var(--b2);background:transparent;color:var(--muted);cursor:pointer">
             — Marcar como ignorado
@@ -6517,6 +6521,160 @@ function abrirDetDia(cel, dia, semStr, statusCor, event) {
   document.getElementById('planDetConteudo').innerHTML = linhas.join('<br>') + acoes;
   painel.style.display = 'block';
 }
+
+// ═══════════════════════════════════════════════════════════════
+// [Sub-fase 3.2 Parte 2] MOVER TREINO MANUAL
+// ═══════════════════════════════════════════════════════════════
+// Permite remarcar manualmente um slot do plano para outra data,
+// sem cascata em árvore. Atualiza apenas _reagend para esse slot.
+//
+// Funções:
+//   abrirMoverTreino(sem, dia, treino) — modal com campo de data
+//   confirmarMoverTreino()              — handler de confirmação
+//   removerMoverTreino(sem, dia, treino) — desfaz mover (volta ao dia original)
+// ═══════════════════════════════════════════════════════════════
+
+window._moverTreinoCtx = null;
+
+function abrirMoverTreino(sem, dia, treinoOrig) {
+  const semNum = Number(sem);
+  const dataOriginal = gerarDataPlano(semNum, dia);
+  const reagendKey = `${semNum}_${dia}`;
+  const reagendExistente = _reagend[reagendKey];
+  // Data inicial sugerida: se já há reagendamento, usa novaData; senão usa original
+  const dataInicial = reagendExistente ? reagendExistente.novaData : dataOriginal;
+
+  // Buscar dados do plano para mostrar info do treino
+  const planoEf = getPlanoEfetivo();
+  const slot = planoEf.find(p => Number(p.semana) === semNum && p.dia === dia);
+  const treinoLabel = slot ? slot.treino : treinoOrig;
+  const kmLabel = slot && slot.km > 0 ? ` · ${slot.km}km` : (slot && slot.tempo > 0 ? ` · ~${slot.tempo}min` : '');
+
+  window._moverTreinoCtx = {
+    sem: semNum,
+    dia,
+    treino: treinoLabel,
+    dataOriginal,
+    reagendKey,
+    jaReagendado: !!reagendExistente
+  };
+
+  document.getElementById('modalTitle').textContent = '📅 Mover treino';
+  document.getElementById('modalBody').innerHTML = `
+    <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:14px">
+      Mover <strong style="color:var(--text)">${treinoLabel}${kmLabel}</strong>
+      de <strong style="color:var(--text)">S${semNum}/${dia}</strong>
+      (originalmente em <strong style="color:var(--text)">${dataOriginal.split('-').reverse().join('/')}</strong>).
+    </div>
+    ${reagendExistente ? `
+    <div style="background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.25);border-radius:4px;padding:10px 12px;margin-bottom:14px;font-size:11px">
+      <span style="color:var(--yellow)">⚠ Já reagendado</span> para
+      <strong style="color:var(--text)">${reagendExistente.novaData.split('-').reverse().join('/')} (${reagendExistente.novoDia})</strong>.
+      Você pode mudar para outra data ou voltar ao dia original.
+    </div>` : ''}
+    <div class="fgroup" style="margin-bottom:14px">
+      <label>Nova data</label>
+      <input type="date" id="moverTreinoData" value="${dataInicial}"
+        style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--b1);border-radius:4px;color:var(--text);font-size:13px">
+    </div>
+    <div class="acao-grid">
+      <button class="acao-btn" onclick="confirmarMoverTreino()">
+        <span class="acao-icon">✅</span>
+        <div class="acao-info">
+          <div class="acao-titulo">Confirmar movimentação</div>
+          <div class="acao-desc">Atualiza o calendário sem mexer em outros treinos da semana</div>
+        </div>
+      </button>
+      ${reagendExistente ? `
+      <button class="acao-btn" onclick="removerMoverTreino()">
+        <span class="acao-icon">↩</span>
+        <div class="acao-info">
+          <div class="acao-titulo">Voltar ao dia original</div>
+          <div class="acao-desc">Remove o reagendamento — slot volta para ${dataOriginal.split('-').reverse().join('/')}</div>
+        </div>
+      </button>` : ''}
+      <button class="acao-btn" onclick="closeModal()">
+        <span class="acao-icon">❌</span>
+        <div class="acao-info">
+          <div class="acao-titulo">Cancelar</div>
+          <div class="acao-desc">Nada será alterado</div>
+        </div>
+      </button>
+    </div>`;
+  openModal();
+}
+
+function confirmarMoverTreino() {
+  const ctx = window._moverTreinoCtx;
+  if (!ctx) { closeModal(); return; }
+  const novaDataInput = document.getElementById('moverTreinoData');
+  if (!novaDataInput || !novaDataInput.value) {
+    toast('Selecione uma nova data', true);
+    return;
+  }
+  const novaData = novaDataInput.value;
+  if (novaData === ctx.dataOriginal) {
+    toast('A data escolhida é a original — nada a mudar.', true);
+    return;
+  }
+
+  // Determinar novoDia e novaSem pela nova data
+  const novoDia = dataToDia(novaData);
+  const novaSem = dataToPlanSemana(novaData);
+
+  _reagend[ctx.reagendKey] = {
+    dataOriginal: ctx.dataOriginal,
+    novaData,
+    novoDia,
+    novaSem,
+    treino: ctx.treino
+  };
+  // Adicionar a _ignorados para o slot original também ficar marcado
+  const igKey = `${ctx.sem}_${ctx.dia}_${ctx.treino}`;
+  _ignorados.add(igKey);
+
+  lsSave(LS_REAGEND, _reagend);
+  lsSave(LS_IGN, [..._ignorados]);
+
+  closeModal();
+  window._moverTreinoCtx = null;
+  if (document.getElementById('planDetPainel')) {
+    document.getElementById('planDetPainel').style.display = 'none';
+  }
+  renderPlanoTab();
+  atualizarKPIs();
+  if (typeof renderOverview === 'function') renderOverview();
+
+  toast(`✓ Slot S${ctx.sem}/${ctx.dia} movido para ${novaData.split('-').reverse().join('/')} (${novoDia})`);
+}
+
+function removerMoverTreino() {
+  const ctx = window._moverTreinoCtx;
+  if (!ctx) { closeModal(); return; }
+  if (!ctx.jaReagendado) { closeModal(); return; }
+
+  delete _reagend[ctx.reagendKey];
+  const igKey = `${ctx.sem}_${ctx.dia}_${ctx.treino}`;
+  _ignorados.delete(igKey);
+
+  lsSave(LS_REAGEND, _reagend);
+  lsSave(LS_IGN, [..._ignorados]);
+
+  closeModal();
+  window._moverTreinoCtx = null;
+  if (document.getElementById('planDetPainel')) {
+    document.getElementById('planDetPainel').style.display = 'none';
+  }
+  renderPlanoTab();
+  atualizarKPIs();
+  if (typeof renderOverview === 'function') renderOverview();
+
+  toast(`↩ Slot S${ctx.sem}/${ctx.dia} voltou para ${ctx.dataOriginal.split('-').reverse().join('/')}`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FIM DO BLOCO MOVER TREINO
+// ═══════════════════════════════════════════════════════════════
 
 function marcarIgnoradoPlano(sem, dia, treino) {
   const key = `${sem}_${dia}_${treino}`;
