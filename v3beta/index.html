@@ -1950,7 +1950,9 @@ function getLogPorCiclo(ciclo) {
   return getLog().filter(r => (r.ciclo || 1) === ciclo);
 }
 function getNomeCiclo(ciclo) {
-  return ciclo === 'todos' ? 'Todos os ciclos' : `Ciclo ${ciclo}`;
+  // [Sub-fase 3.3] UI mostra "Fase" (modelo mental do macrociclo Sub-3);
+  // código mantém "ciclo" internamente.
+  return ciclo === 'todos' ? 'Todas as fases' : `Fase ${ciclo}`;
 }
 function iniciarNovoCiclo(semsSubstituidas, ancora) {
   // [Port-Calendario] ancora = { ancoraSem, ancoraDia, ancoraData, ordemDias } | undefined (legado)
@@ -1973,16 +1975,50 @@ function iniciarNovoCiclo(semsSubstituidas, ancora) {
   return novoCiclo;
 }
 
+// [Sub-fase 3.3] Registra um bloco de semanas novas com âncora própria.
+// opts.novoCiclo = true  → incrementa o ciclo (inicia nova fase)
+// opts.novoCiclo = false → mantém o ciclo atual (dá sequência na mesma fase)
+// Em ambos os casos, grava a âncora de calendário das semanas do bloco.
+function registrarBlocoNovo(semsBloco, ancora, opts = {}) {
+  const hist = getHistoricoPlanos();
+  const cicloAtual = getCicloAtual();
+  const ciclo = opts.novoCiclo ? cicloAtual + 1 : cicloAtual;
+  const entry = {
+    ciclo,
+    semsSubstituidas: semsBloco,
+    dataSubstituicao: new Date().toISOString().slice(0,10),
+    sequencia: !opts.novoCiclo  // marca se foi "dar sequência" (mesma fase)
+  };
+  if (ancora) {
+    entry.ancoraSem  = ancora.ancoraSem;
+    entry.ancoraDia  = ancora.ancoraDia;
+    entry.ancoraData = ancora.ancoraData;
+    entry.ordemDias  = ancora.ordemDias;
+  }
+  hist.push(entry);
+  localStorage.setItem(LS_HISTORICO_PLANOS, JSON.stringify(hist));
+  if (opts.novoCiclo) localStorage.setItem(LS_CICLO_ATUAL, String(ciclo));
+  return ciclo;
+}
+
 // [Port-Calendario] Função canônica para calendário por ciclo.
 // Retorna a âncora (data, dia, ordem) que rege as semanas pertencentes a um ciclo.
 // Para ciclo 1 ou ciclos sem âncora persistida, retorna fallback hardcoded
 // compatível com PLANO_BASE original (ânchor 31/03 Ter, ordem Ter→Seg).
 function getAncoraDoCiclo(semana) {
-  const ciclo = getCicloDaSemana(semana);
-  if (ciclo > 1) {
-    const hist = getHistoricoPlanos();
-    const entry = hist.find(h => h.ciclo === ciclo);
-    if (entry && entry.ancoraData && entry.ancoraDia && entry.ancoraSem && entry.ordemDias) {
+  // [Sub-fase 3.3] Busca âncora POR SEMANA, não por ciclo.
+  // Cada entrada do histórico cobre um conjunto de semanas (semsSubstituidas)
+  // com sua própria âncora de calendário. Isso permite que uma mesma fase
+  // (ciclo) tenha vários blocos de 4 semanas, cada um "dando sequência" ao
+  // calendário, sem precisar virar de fase. Procura da entrada mais recente
+  // para a mais antiga; retorna a âncora da primeira que cobre a semana.
+  const semNum = Number(semana);
+  const hist = getHistoricoPlanos();
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const entry = hist[i];
+    if (Array.isArray(entry.semsSubstituidas) &&
+        entry.semsSubstituidas.includes(semNum) &&
+        entry.ancoraData && entry.ancoraDia && entry.ancoraSem && entry.ordemDias) {
       return {
         ancoraSem:  entry.ancoraSem,
         ancoraDia:  entry.ancoraDia,
@@ -1991,6 +2027,7 @@ function getAncoraDoCiclo(semana) {
       };
     }
   }
+  // Fallback: ciclo 1 / semanas sem âncora persistida (PLANO_BASE original)
   return {
     ancoraSem:  1,
     ancoraDia:  'Ter',
@@ -4766,21 +4803,21 @@ async function confirmarPlano() {
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.7">
         A planilha contém <strong style="color:var(--text)">${semsRevisadas.length} semana(s) revisada(s)</strong>
         (${semsRevisadas.map(s=>'S'+s).join(', ')}) que já existem no plano base.<br><br>
-        Ao confirmar, as semanas revisadas substituirão o plano original e um
-        <strong style="color:var(--accent)">novo ciclo será iniciado</strong>.
-        O histórico de treinos é preservado e pode ser filtrado por ciclo.
+        Ao confirmar, as semanas revisadas substituirão o plano original e uma
+        <strong style="color:var(--accent)">nova fase será iniciada</strong>.
+        O histórico de treinos é preservado e pode ser filtrado por fase.
       </div>
       <div style="background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:12px;margin-bottom:14px;font-size:11px">
         <div>📋 <strong>Semanas revisadas:</strong> ${semsRevisadas.map(s=>'S'+s).join(', ')}</div>
         ${semsNovas.length>0?`<div style="margin-top:4px">➕ <strong>Semanas novas:</strong> ${semsNovas.map(s=>'S'+s).join(', ')}</div>`:''}
-        <div style="margin-top:4px">📁 <strong>Ciclo atual:</strong> ${getCicloAtual()} → <strong style="color:var(--accent)">${getCicloAtual()+1}</strong></div>
+        <div style="margin-top:4px">📁 <strong>Fase atual:</strong> ${getCicloAtual()} → <strong style="color:var(--accent)">${getCicloAtual()+1}</strong></div>
       </div>
       <div class="acao-grid">
         <button class="acao-btn" onclick="pedirAncoraEContinuar()">
           <span class="acao-icon">🔄</span>
           <div class="acao-info">
-            <div class="acao-titulo">Substituir e iniciar Ciclo ${getCicloAtual()+1}</div>
-            <div class="acao-desc">Substitui as semanas revisadas, inicia novo ciclo, preserva histórico</div>
+            <div class="acao-titulo">Substituir e iniciar Fase ${getCicloAtual()+1}</div>
+            <div class="acao-desc">Substitui as semanas revisadas, inicia nova fase, preserva histórico</div>
           </div>
         </button>
         <button class="acao-btn" onclick="executarAtualizacaoPlano(false)">
@@ -4795,23 +4832,64 @@ async function confirmarPlano() {
     return;
   }
 
-  // Apenas semanas novas (S9+) — adicionar direto
-  executarAtualizacaoPlano(false);
+  // Apenas semanas novas (S9+) — perguntar: dar sequência ou nova fase?
+  abrirModalBlocoNovo(semsNovas);
+}
+
+// [Sub-fase 3.3] Modal de escolha ao subir bloco só com semanas novas.
+// Duas saídas, ambas registram âncora de calendário:
+//   • Dar sequência (mesma fase) → registrarBlocoNovo(..., {novoCiclo:false})
+//   • Iniciar nova fase          → registrarBlocoNovo(..., {novoCiclo:true})
+function abrirModalBlocoNovo(semsNovas) {
+  const faseAtual = getCicloAtual();
+  document.getElementById('modalTitle').textContent = '📋 Novo bloco de treinos';
+  document.getElementById('modalBody').innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.7">
+      A planilha contém <strong style="color:var(--text)">${semsNovas.length} semana(s) nova(s)</strong>
+      (${semsNovas.map(s=>'S'+s).join(', ')}). Como deseja adicionar este bloco?
+    </div>
+    <div class="acao-grid">
+      <button class="acao-btn" onclick="pedirAncoraEContinuar('sequencia')">
+        <span class="acao-icon">▶</span>
+        <div class="acao-info">
+          <div class="acao-titulo">Dar sequência (mesma fase)</div>
+          <div class="acao-desc">Continua a Fase ${faseAtual} atual. O calendário segue de onde parou, sem trocar de fase.</div>
+        </div>
+      </button>
+      <button class="acao-btn" onclick="pedirAncoraEContinuar('novafase')">
+        <span class="acao-icon">🔄</span>
+        <div class="acao-info">
+          <div class="acao-titulo">Iniciar nova fase (Fase ${faseAtual + 1})</div>
+          <div class="acao-desc">Marca o início de uma nova fase do macrociclo. Use quando a equipe mudar a fase do plano.</div>
+        </div>
+      </button>
+      <button class="acao-btn" onclick="closeModal()">
+        <span class="acao-icon">❌</span>
+        <div class="acao-info">
+          <div class="acao-titulo">Cancelar</div>
+          <div class="acao-desc">Volta ao preview sem aplicar mudanças</div>
+        </div>
+      </button>
+    </div>`;
+  openModal();
 }
 
 // [Port-Calendario] Modal intermediário: pergunta a data-âncora do novo ciclo.
 // Sugestão automática = próxima ocorrência do primeiro dia da planilha a partir de hoje.
-function pedirAncoraEContinuar() {
+function pedirAncoraEContinuar(modo) {
+  // [Sub-fase 3.3] modo: 'substituir' (revisão S1-S8 → nova fase, legado),
+  //                      'sequencia'  (bloco novo, mesma fase),
+  //                      'novafase'   (bloco novo, nova fase)
+  window._modoAncora = modo || 'substituir';
   const meta = _planoImportadoMeta;
   if (!meta || !meta.ordemDias) {
-    // Fallback: se metadata ausente por algum motivo, executa direto sem âncora nova
     console.warn('Metadata da importação ausente — executando sem âncora nova.');
-    executarAtualizacaoPlano(true, null);
+    if (window._modoAncora === 'substituir') executarAtualizacaoPlano(true, null);
+    else executarBlocoNovo(null);
     return;
   }
   const primeiroDia = meta.ordemDias[0];
   const primeiraSem = meta.primeiraSem;
-  // Sugestão: próxima ocorrência de primeiroDia a partir de hoje
   const DIAS_JS = { 'Dom':0,'Seg':1,'Ter':2,'Qua':3,'Qui':4,'Sex':5,'Sáb':6 };
   const alvoJsDay = DIAS_JS[primeiroDia] ?? 1;
   const hoje = new Date();
@@ -4821,9 +4899,28 @@ function pedirAncoraEContinuar() {
   while (sugestao.getDay() !== alvoJsDay && tentativas++ < 7) {
     sugestao.setDate(sugestao.getDate() + 1);
   }
+  // [Sub-fase 3.3] Para "dar sequência", sugerir continuidade: dia seguinte
+  // ao fim da última semana já existente, em vez de "próxima a partir de hoje".
+  if (window._modoAncora === 'sequencia') {
+    try {
+      const semsExistentes = getSemsPlano();
+      if (semsExistentes.length > 0) {
+        const ultimaSem = Math.max(...semsExistentes.filter(s => s < primeiraSem));
+        if (isFinite(ultimaSem) && ultimaSem > 0) {
+          const ordemUlt = getAncoraDoCiclo(ultimaSem).ordemDias;
+          const fimUlt = new Date(gerarDataPlano(ultimaSem, ordemUlt[ordemUlt.length-1]) + 'T12:00:00');
+          fimUlt.setDate(fimUlt.getDate() + 1); // dia seguinte ao fim
+          sugestao = fimUlt;
+        }
+      }
+    } catch(e) {}
+  }
   const sugestaoStr = sugestao.toISOString().slice(0,10);
 
-  document.getElementById('modalTitle').textContent = '📅 Data de início do novo ciclo';
+  const tituloModo = window._modoAncora === 'sequencia' ? 'Dar sequência ao calendário'
+                   : window._modoAncora === 'novafase'  ? 'Início da nova fase'
+                   : 'Início da nova fase';
+  document.getElementById('modalTitle').textContent = '📅 ' + tituloModo;
   document.getElementById('modalBody').innerHTML = `
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.7">
       A planilha começa em <strong style="color:var(--text)">S${primeiraSem} / ${primeiroDia}</strong>.
@@ -4831,7 +4928,7 @@ function pedirAncoraEContinuar() {
     </div>
     <div style="background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:12px;margin-bottom:14px;font-size:11px">
       <div style="margin-bottom:6px"><strong>Ordem dos dias detectada:</strong> ${meta.ordemDias.join(' → ')}</div>
-      <div style="color:var(--muted)">Sugestão: próxima ${primeiroDia} a partir de hoje.</div>
+      <div style="color:var(--muted)">${window._modoAncora === 'sequencia' ? 'Sugestão: dia seguinte ao fim da última semana.' : 'Sugestão: próxima ' + primeiroDia + ' a partir de hoje.'}</div>
     </div>
     <div class="fgroup" style="margin-bottom:14px">
       <label>Data de S${primeiraSem} / ${primeiroDia}</label>
@@ -4841,7 +4938,7 @@ function pedirAncoraEContinuar() {
       <button class="acao-btn" onclick="confirmarAncoraEExecutar()">
         <span class="acao-icon">✅</span>
         <div class="acao-info">
-          <div class="acao-titulo">Confirmar e iniciar novo ciclo</div>
+          <div class="acao-titulo">Confirmar</div>
           <div class="acao-desc">As datas dos treinos serão calculadas a partir desta âncora</div>
         </div>
       </button>
@@ -4853,7 +4950,6 @@ function pedirAncoraEContinuar() {
         </div>
       </button>
     </div>`;
-  // openModal já está aberto (vem do modal anterior); só atualiza conteúdo
 }
 
 function confirmarAncoraEExecutar() {
@@ -4869,7 +4965,61 @@ function confirmarAncoraEExecutar() {
     ancoraData: dataInput.value,
     ordemDias:  meta.ordemDias
   };
-  executarAtualizacaoPlano(true, ancora);
+  // [Sub-fase 3.3] Rotear conforme o modo escolhido
+  const modo = window._modoAncora || 'substituir';
+  if (modo === 'substituir') {
+    executarAtualizacaoPlano(true, ancora);
+  } else {
+    executarBlocoNovo(ancora, { novoCiclo: modo === 'novafase' });
+  }
+}
+
+// [Sub-fase 3.3] Executa adição de bloco só com semanas novas, registrando âncora.
+function executarBlocoNovo(ancora, opts = {}) {
+  closeModal();
+  document.getElementById('planPreview').style.display = 'none';
+  mostrarPlanStatus('⏳ Salvando planejamento...', 'var(--muted)');
+
+  const semsImportadas = [...new Set(_planoImportado.map(r => Number(r.semana)))].sort((a,b)=>a-b);
+  const semsBase       = new Set(PLANO_BASE.map(r => r.semana));
+  const semsNovas      = semsImportadas.filter(s => !semsBase.has(s));
+
+  // Registrar âncora do bloco (com ou sem incremento de ciclo)
+  let cicloResultante = getCicloAtual();
+  if (ancora) {
+    cicloResultante = registrarBlocoNovo(semsNovas, ancora, opts);
+  } else if (opts.novoCiclo) {
+    cicloResultante = registrarBlocoNovo(semsNovas, null, opts);
+  }
+
+  // Marcar treinos novos do log com o ciclo resultante (se já houver algum)
+  const logAtual = getLog().map(r => {
+    if (semsNovas.includes(Number(r.semana)) && !r.ciclo) {
+      return { ...r, ciclo: cicloResultante };
+    }
+    return r;
+  });
+  lsSave(LS.LOG, logAtual);
+
+  // Adicionar semanas novas ao plano
+  const adicionais   = _planoImportado.filter(r => semsNovas.includes(Number(r.semana)));
+  const jaExistentes = getPlano().filter(r => !adicionais.some(e => Number(e.semana) === Number(r.semana)));
+  const novoPlano    = [...jaExistentes, ...adicionais].sort((a,b)=>Number(a.semana)-Number(b.semana));
+  lsSave(LS.PLANO, novoPlano);
+
+  const totalSems = getSemsPlano().length;
+  const labelModo = opts.novoCiclo ? `Fase ${cicloResultante} iniciada` : `Bloco adicionado à Fase ${cicloResultante}`;
+  mostrarPlanStatus(
+    `✅ ${labelModo}! Semanas ${semsNovas.map(s=>'S'+s).join(', ')} adicionadas. Total: ${totalSems} semanas.`,
+    'var(--green)'
+  );
+
+  _planoImportado = [];
+  _planoImportadoMeta = null;
+  document.getElementById('planUploadInput').value = '';
+  renderPlanoTab();
+  atualizarKPIs();
+  toast(opts.novoCiclo ? `Fase ${cicloResultante} iniciada!` : 'Bloco adicionado!');
 }
 
 function executarAtualizacaoPlano(substituir, ancora) {
@@ -4929,7 +5079,7 @@ function executarAtualizacaoPlano(substituir, ancora) {
   const totalSems = getSemsPlano().length;
 
   const aviso = substituir && semsSubst.length > 0
-    ? `✅ Ciclo ${novoCiclo} iniciado! Semanas ${semsSubst.map(s=>'S'+s).join(', ')} atualizadas. Total: ${totalSems} semanas.`
+    ? `✅ Fase ${novoCiclo} iniciada! Semanas ${semsSubst.map(s=>'S'+s).join(', ')} atualizadas. Total: ${totalSems} semanas.`
     : semsNovas.length > 0
       ? `✅ ${semsNovas.length} semana(s) novas adicionadas (${semsNovas.map(s=>'S'+s).join(', ')}). Total: ${totalSems} semanas.`
       : '⚠️ Nenhuma semana nova para adicionar.';
@@ -4941,7 +5091,7 @@ function executarAtualizacaoPlano(substituir, ancora) {
   document.getElementById('planUploadInput').value = '';
   renderPlanoTab();
   atualizarKPIs();
-  if (substituir || semsNovas.length > 0) toast(substituir ? `Ciclo ${novoCiclo} iniciado!` : 'Semanas novas adicionadas!');
+  if (substituir || semsNovas.length > 0) toast(substituir ? `Fase ${novoCiclo} iniciada!` : 'Semanas novas adicionadas!');
 }
 
 function cancelarPlano() {
