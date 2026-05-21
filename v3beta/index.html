@@ -6047,7 +6047,7 @@ function getDadosEscala() {
   if (escalaAnalise === 'mes') {
     // Agrupar por mês
     const meses = {};
-    diagLog.forEach(r => {
+    log.forEach(r => {
       const key = r.data.slice(0,7); // YYYY-MM
       if (!meses[key]) meses[key] = {paces:[], fcs:[], vo2s:[], carga:0};
       if (r.paceSeg > 0) meses[key].paces.push(r.paceSeg);
@@ -6971,7 +6971,7 @@ function exportarCSV(modo = 'completo') {
     // Notas
     'Notas'
   );
-  diagLog.forEach(r => {
+  log.forEach(r => {
     const tempoMin   = r.tempoSeg > 0 ? (r.tempoSeg / 60).toFixed(1) : '';
     const paceDecimal= r.paceSeg  > 0 ? (r.paceSeg  / 60).toFixed(2) : ''; // ex: 5.50 = 5:30/km
     const paceFormatado = r.paceSeg > 0 ? paceStr(r.paceSeg).replace('/km','') : '';
