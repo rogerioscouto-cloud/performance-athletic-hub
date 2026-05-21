@@ -7908,10 +7908,42 @@ function dataToDia(dataStr) {
 
 function dataToPlanSemana(dataStr) {
   if (!dataStr) return 1;
+  // [DT-4 fix] A contagem fixa de 7-em-7 desde PLANO_INICIO falhava em
+  // ciclos com âncora deslocada (ex: ciclo 2 começando numa segunda em vez
+  // de terça → off-by-one). Agora descobrimos a semana procurando aquela
+  // cujo intervalo real de datas (gerado por gerarDataPlano, que já respeita
+  // as âncoras por ciclo) contém a data buscada. Consistência garantida com
+  // o calendário renderizado.
+  const alvo = new Date(dataStr + 'T12:00:00');
+
+  // Determinar faixa de semanas a testar: do plano efetivo + margem.
+  let semMax = 8;
+  try {
+    const planoEf = getPlanoEfetivo();
+    if (planoEf && planoEf.length) {
+      semMax = Math.max(...planoEf.map(p => Number(p.semana) || 0), 8);
+    }
+  } catch(e) {}
+  semMax += 4; // margem para datas além do plano carregado
+
+  // Para cada semana (da maior para a menor), calcular o intervalo
+  // [primeiroDia, últimoDia] usando a ordemDias do ciclo daquela semana, e
+  // testar se a data cai dentro. A ordem DECRESCENTE é essencial: na transição
+  // entre ciclos há sobreposição de 1 dia (ex: 27/04 é último dia da S4/ciclo1
+  // E primeiro dia da S5/ciclo2). Testar semanas maiores primeiro garante que
+  // a data seja atribuída ao ciclo mais recente, como o calendário renderiza.
+  for (let sem = semMax; sem >= 1; sem--) {
+    const ordem = getAncoraDoCiclo(sem).ordemDias;
+    const primeiroDia = ordem[0];
+    const ultimoDia   = ordem[ordem.length - 1];
+    const ini = new Date(gerarDataPlano(sem, primeiroDia) + 'T12:00:00');
+    const fim = new Date(gerarDataPlano(sem, ultimoDia)   + 'T12:00:00');
+    if (alvo >= ini && alvo <= fim) return sem;
+  }
+
+  // Fallback (data fora de qualquer semana mapeada): contagem legada.
   const inicio = new Date(PLANO_INICIO + 'T12:00:00');
-  const data   = new Date(dataStr    + 'T12:00:00');
-  const diffMs = data - inicio;
-  const diffDias = Math.floor(diffMs / 86400000);
+  const diffDias = Math.floor((alvo - inicio) / 86400000);
   if (diffDias < 0) return 1;
   return Math.floor(diffDias / 7) + 1;
 }
