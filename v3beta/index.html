@@ -1936,6 +1936,58 @@ function getCicloAtual() {
   const n = parseInt(limpo, 10);
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
+
+// [chips-scroll] Habilita arrasto-com-mouse no container de chips (desktop)
+// e rola até o chip ativo ficar visível. Idempotente — pode ser chamada a
+// cada render sem empilhar listeners (usa flag _dragReady no elemento).
+function setupChipScroll(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  // 1. Arrasto com mouse (click-and-drag) — só liga uma vez por elemento
+  if (!el._dragReady) {
+    let isDown = false, startX = 0, startScroll = 0, moved = false;
+    el.addEventListener('mousedown', (e) => {
+      isDown = true; moved = false;
+      startX = e.pageX - el.offsetLeft;
+      startScroll = el.scrollLeft;
+      el.style.cursor = 'grabbing';
+    });
+    el.addEventListener('mouseleave', () => { isDown = false; el.style.cursor = ''; });
+    el.addEventListener('mouseup',   () => { isDown = false; el.style.cursor = ''; });
+    el.addEventListener('mousemove', (e) => {
+      if (!isDown) return;
+      const x = e.pageX - el.offsetLeft;
+      const walk = x - startX;
+      if (Math.abs(walk) > 4) moved = true;
+      el.scrollLeft = startScroll - walk;
+    });
+    // Evita que o arrasto dispare o onclick do chip ao soltar
+    el.addEventListener('click', (e) => {
+      if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; }
+    }, true);
+    // Converte scroll vertical do mouse em horizontal quando sobre os chips
+    el.addEventListener('wheel', (e) => {
+      if (e.deltaY !== 0 && el.scrollWidth > el.clientWidth) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
+    el.style.cursor = 'grab';
+    el._dragReady = true;
+  }
+
+  // 2. Rolar até o chip ativo ficar visível (centralizado se possível)
+  const ativo = el.querySelector('.wchip.active');
+  if (ativo) {
+    const elRect = el.getBoundingClientRect();
+    const aRect  = ativo.getBoundingClientRect();
+    if (aRect.left < elRect.left || aRect.right > elRect.right) {
+      const offset = ativo.offsetLeft - (el.clientWidth / 2) + (ativo.clientWidth / 2);
+      el.scrollTo({ left: Math.max(0, offset), behavior: 'smooth' });
+    }
+  }
+}
 function getHistoricoPlanos() {
   try { return JSON.parse(localStorage.getItem(LS_HISTORICO_PLANOS) || '[]'); } catch { return []; }
 }
@@ -3184,6 +3236,7 @@ function renderProntidao() {
     c.onclick=()=>{pontSem=s;renderProntidao();};
     chips.appendChild(c);
   });
+  setupChipScroll('pontChips');
   const pSel=pront.filter(r=>Number(r.semana)===Number(pontSem));
   document.getElementById('pontList').innerHTML=pSel.map(r=>`
     <div class="dia-item" onclick="showDetPront('${r.data}')">
@@ -3214,6 +3267,7 @@ function renderLogTab() {
     c.onclick=()=>{logSem=s;renderLogTab();};
     chips.appendChild(c);
   });
+  setupChipScroll('logChips');
   const lSel=log.filter(r=>Number(r.semana)===Number(logSem));
   // Agrupar por data para mostrar indicador de múltiplas sessões
   const contPorData = {};
@@ -4545,6 +4599,7 @@ function renderForcaTab() {
     c.onclick = () => { forcaSem = s; renderForcaTab(); };
     chips.appendChild(c);
   });
+  setupChipScroll('forcaChips');
   const sel = lst.filter(r => Number(r.semana)===Number(forcaSem));
   document.getElementById('forcaList').innerHTML = sel.map(r => `
     <div class="forca-item" onclick="showDetForca(${r.id})">
@@ -5151,6 +5206,7 @@ function renderPlanoTab() {
     c.onclick = () => { planSemSel = s; renderPlanoTab(); };
     chips.appendChild(c);
   });
+  setupChipScroll('planChips');
 
   const sessoes  = plano.filter(r => Number(r.semana) === planSemSel);
   const kmSem    = sessoes.reduce((s,r) => s+(r.km||0), 0);
