@@ -4615,9 +4615,22 @@ function importarPlano(file) {
     try {
       const data = new Uint8Array(e.target.result);
       const wb   = XLSX.read(data, { type: 'array' });
-      const ws   = wb.Sheets['Plano de Treinos'];
+      // [fix] Seleção tolerante do nome da aba. O treinador nomeia a aba
+      // de plano de formas variadas ("Plano de Treinos", "Plano S9-S12",
+      // "Plano S13-S16"...). Aceitamos:
+      //   1) nome exato "Plano de Treinos" (legado), senão
+      //   2) qualquer aba cujo nome normalizado comece com "plano", senão
+      //   3) a primeira aba que NÃO seja de força/log/prontidão.
+      const normNome = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+      let nomeAba = wb.SheetNames.find(n => n === 'Plano de Treinos');
+      if (!nomeAba) nomeAba = wb.SheetNames.find(n => normNome(n).startsWith('plano'));
+      if (!nomeAba) {
+        const ehOutra = n => { const x = normNome(n); return x.startsWith('forca') || x.startsWith('força') || x.includes('log') || x.includes('prontid'); };
+        nomeAba = wb.SheetNames.find(n => !ehOutra(n));
+      }
+      const ws = nomeAba ? wb.Sheets[nomeAba] : null;
       if (!ws) {
-        mostrarPlanStatus('❌ Aba "Plano de Treinos" não encontrada. Abas disponíveis: ' + wb.SheetNames.join(', '), 'var(--red)');
+        mostrarPlanStatus('❌ Nenhuma aba de plano encontrada. Abas disponíveis: ' + wb.SheetNames.join(', '), 'var(--red)');
         return;
       }
       const todas = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
