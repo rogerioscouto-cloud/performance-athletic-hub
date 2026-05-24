@@ -1928,7 +1928,13 @@ const getCfg     = () => { try{return JSON.parse(localStorage.getItem(LS.CFG))||
 
 // ── Ciclos de Planejamento ──────────────────────────────────────
 function getCicloAtual() {
-  return parseInt(localStorage.getItem(LS_CICLO_ATUAL) || '1');
+  // [fix] Robusto a valores corrompidos com aspas (ex: '"1"' por dupla
+  // serialização no sync). Extrai o primeiro inteiro encontrado; default 1.
+  const raw = localStorage.getItem(LS_CICLO_ATUAL);
+  if (raw == null) return 1;
+  const limpo = String(raw).replace(/['"\\]/g, '').trim();
+  const n = parseInt(limpo, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
 }
 function getHistoricoPlanos() {
   try { return JSON.parse(localStorage.getItem(LS_HISTORICO_PLANOS) || '[]'); } catch { return []; }
@@ -1981,10 +1987,11 @@ function iniciarNovoCiclo(semsSubstituidas, ancora) {
 // Em ambos os casos, grava a âncora de calendário das semanas do bloco.
 function registrarBlocoNovo(semsBloco, ancora, opts = {}) {
   const hist = getHistoricoPlanos();
-  const cicloAtual = getCicloAtual();
+  const cicloAtual = getCicloAtual(); // já robusto a aspas, sempre >= 1
   const ciclo = opts.novoCiclo ? cicloAtual + 1 : cicloAtual;
+  const cicloSeguro = Number.isFinite(ciclo) && ciclo > 0 ? ciclo : 1;
   const entry = {
-    ciclo,
+    ciclo: cicloSeguro,
     semsSubstituidas: semsBloco,
     dataSubstituicao: new Date().toISOString().slice(0,10),
     sequencia: !opts.novoCiclo  // marca se foi "dar sequência" (mesma fase)
@@ -1997,8 +2004,8 @@ function registrarBlocoNovo(semsBloco, ancora, opts = {}) {
   }
   hist.push(entry);
   localStorage.setItem(LS_HISTORICO_PLANOS, JSON.stringify(hist));
-  if (opts.novoCiclo) localStorage.setItem(LS_CICLO_ATUAL, String(ciclo));
-  return ciclo;
+  if (opts.novoCiclo) localStorage.setItem(LS_CICLO_ATUAL, String(cicloSeguro));
+  return cicloSeguro;
 }
 
 // [Port-Calendario] Função canônica para calendário por ciclo.
