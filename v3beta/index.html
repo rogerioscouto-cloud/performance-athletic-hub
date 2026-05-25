@@ -5092,6 +5092,7 @@ function executarBlocoNovo(ancora, opts = {}) {
   _planoImportado = [];
   _planoImportadoMeta = null;
   document.getElementById('planUploadInput').value = '';
+  popularSelectsSemana();
   renderPlanoTab();
   atualizarKPIs();
   toast(opts.novoCiclo ? `Fase ${cicloResultante} iniciada!` : 'Bloco adicionado!');
@@ -5164,6 +5165,7 @@ function executarAtualizacaoPlano(substituir, ancora) {
   _planoImportado = [];
   _planoImportadoMeta = null;
   document.getElementById('planUploadInput').value = '';
+  popularSelectsSemana();
   renderPlanoTab();
   atualizarKPIs();
   if (substituir || semsNovas.length > 0) toast(substituir ? `Fase ${novoCiclo} iniciada!` : 'Semanas novas adicionadas!');
@@ -8187,6 +8189,44 @@ function setSemSelect(semId, semNum) {
   if (!found) sel.selectedIndex = sel.options.length - 1;
 }
 
+// [fix-selects] Popula os <select> de semana dinamicamente conforme o plano
+// cresce (S9, S10... S16). Antes eram hardcoded até S8, fazendo registros de
+// semanas novas caírem erradamente na última opção (S8). Chamada no boot e
+// após uploads de plano. Preserva a opção "Pré-plano (base)" do select de corpo.
+function popularSelectsSemana() {
+  let maxSem = 8;
+  try {
+    const planoEf = getPlanoEfetivo();
+    if (planoEf && planoEf.length) {
+      maxSem = Math.max(8, ...planoEf.map(p => Number(p.semana) || 0));
+    }
+  } catch(e) {}
+
+  const configs = [
+    { id: 'p-sem', base: false },
+    { id: 'l-sem', base: false },
+    { id: 'f-sem', base: false },
+    { id: 'c-sem', base: true }, // corpo tem opção "Pré-plano (base)" = 0
+  ];
+
+  configs.forEach(({ id, base }) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const valorAtual = sel.value; // preservar seleção se possível
+    let html = base ? '<option value="0">Pré-plano (base)</option>' : '';
+    for (let s = 1; s <= maxSem; s++) {
+      html += `<option value="${s}">Semana ${s}</option>`;
+    }
+    sel.innerHTML = html;
+    // Restaurar seleção anterior se ainda existir
+    if (valorAtual) {
+      for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === valorAtual) { sel.selectedIndex = i; break; }
+      }
+    }
+  });
+}
+
 function sincronizarData(prefixo) {
   const dataEl = document.getElementById(prefixo + '-data');
   if (!dataEl) return;
@@ -8270,6 +8310,10 @@ document.addEventListener('DOMContentLoaded',()=>{ // inicialização de formul�
     const el = document.getElementById(id);
     if (el) el.setAttribute('max', hoje);
   });
+  // [fix-selects] Popular selects de semana dinamicamente (S1..Smax) ANTES
+  // de sincronizar as datas, para que datas de semanas novas (S9+) selecionem
+  // a opção correta em vez de cair na última (S8).
+  popularSelectsSemana();
   // Preencher data de hoje em todos os formulários e sincronizar dia+semana
   ['p','l','f','c'].forEach(pfx => {
     const el = document.getElementById(pfx+'-data');
