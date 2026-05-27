@@ -2814,19 +2814,6 @@ function sugerirReagendamento(semana, dia, direcao = 'apos', dataBase = null) {
   return sugestoes.sort((a,b) => b.score - a.score).slice(0, 3);
 }
 
-// ── Modal inteligente ─────────────────────────────────────
-
-function sobrescreverLog(idExistente) {
-  // Remover o registro existente e salvar o novo no lugar
-  const lst = getLog().filter(r => (r.id||r.data) !== idExistente);
-  lsSave(LS.LOG, lst);
-  // Agora salvar o novo com o ID original (para manter histórico limpo)
-  if (_regPendente) {
-    _regPendente.id = idExistente; // preservar ID original
-    _salvarRegNoLog(_regPendente);
-    _finalizarUI(_regPendente.statusPlano || 'no_prazo');
-  }
-}
 function getSlotsRealizados() {
   const log = getLog();
   const plano = getPlanoEfetivo();
