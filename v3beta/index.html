@@ -1928,8 +1928,10 @@ const getCfg     = () => { try{return JSON.parse(localStorage.getItem(LS.CFG))||
 
 // ── Ciclos de Planejamento ──────────────────────────────────────
 function getCicloAtual() {
-  // [fix] Robusto a valores corrompidos com aspas (ex: '"1"' por dupla
-  // serialização no sync). Extrai o primeiro inteiro encontrado; default 1.
+  // [DT-7] ciclo_atual agora é sempre gravado como número via lsSave (JSON),
+  // consistente com as demais chaves. Esta leitura permanece robusta a
+  // formatos legados (cru "1", JSON "1", ou corrompido com aspas) para
+  // tolerar dados gravados antes da padronização. Default 1.
   const raw = localStorage.getItem(LS_CICLO_ATUAL);
   if (raw == null) return 1;
   const limpo = String(raw).replace(/['"\\]/g, '').trim();
@@ -2029,7 +2031,10 @@ function iniciarNovoCiclo(semsSubstituidas, ancora) {
   }
   hist.push(entry);
   localStorage.setItem(LS_HISTORICO_PLANOS, JSON.stringify(hist));
-  localStorage.setItem(LS_CICLO_ATUAL, String(novoCiclo));
+  // [DT-7] Padronizado: ciclo_atual sempre como número via lsSave (JSON),
+  // como todas as outras chaves. Elimina a inconsistência de tipo que causava
+  // dupla serialização de aspas no sync.
+  lsSave(LS_CICLO_ATUAL, Number(novoCiclo));
   return novoCiclo;
 }
 
@@ -2056,7 +2061,8 @@ function registrarBlocoNovo(semsBloco, ancora, opts = {}) {
   }
   hist.push(entry);
   localStorage.setItem(LS_HISTORICO_PLANOS, JSON.stringify(hist));
-  if (opts.novoCiclo) localStorage.setItem(LS_CICLO_ATUAL, String(cicloSeguro));
+  // [DT-7] ciclo_atual sempre como número via lsSave (padrão JSON consistente)
+  if (opts.novoCiclo) lsSave(LS_CICLO_ATUAL, Number(cicloSeguro));
   return cicloSeguro;
 }
 
