@@ -293,6 +293,27 @@ input[type=range]::-webkit-slider-thumb{
   -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
   background:var(--accent);cursor:pointer;box-shadow:0 0 8px rgba(0,212,255,.35);
 }
+/* [P-2] Estado "pristine" — slider ainda não tocado pelo usuário.
+   Visualmente cinza o thumb e oculta o número (mostra — no lugar),
+   evitando que o valor default (5 ou 3) seja interpretado como "valor
+   real registrado". */
+input[type=range].pristine{
+  opacity:.35;
+}
+input[type=range].pristine::-webkit-slider-thumb{
+  background:var(--muted);box-shadow:none;
+}
+.sval.pristine{
+  color:var(--muted);
+  font-size:0; /* esconde o número */
+}
+.sval.pristine::after{
+  content:'—';
+  font-size:20px;
+  font-family:'JetBrains Mono',monospace;
+  font-weight:600;
+  color:var(--muted);
+}
 
 /* ══ STATUS PILLS ══ */
 .status-pills{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0}
@@ -1022,7 +1043,7 @@ input[type=range]::-webkit-slider-thumb{
         <div class="card-title">Prontidão do dia <span>ao acordar</span></div>
         <div class="form-grid">
           <div class="fgroup"><label>Data</label><input type="date" id="p-data" oninput="sincronizarData('p')"></div>
-          <div class="fgroup"><label>FC repouso (bpm)</label><input type="number" id="p-fc" placeholder="58" min="30" max="120" oninput="calcStatus()"></div>
+          <div class="fgroup"><label>FC repouso (bpm)</label><input type="number" id="p-fc" placeholder="—" min="30" max="120" oninput="calcStatus()"></div>
         </div>
         <div class="form-grid">
           <div class="fgroup"><label>Semana</label>
@@ -1039,21 +1060,21 @@ input[type=range]::-webkit-slider-thumb{
           </div>
         </div>
         <div class="fgroup" style="margin-bottom:12px">
-          <label>Sono — <span id="lbl-sono">5</span>/10</label>
+          <label>Sono — <span id="lbl-sono">—</span>/10</label>
           <div class="slider-row">
             <span style="font-size:10px;color:var(--muted)">0</span>
-            <input type="range" min="0" max="10" value="5" id="sl-sono">
+            <input type="range" min="0" max="10" value="5" id="sl-sono" class="pristine">
             <span style="font-size:10px;color:var(--muted)">10</span>
-            <span class="sval" id="sv-sono">5</span>
+            <span class="sval pristine" id="sv-sono">5</span>
           </div>
         </div>
         <div class="fgroup" style="margin-bottom:14px">
-          <label>Fadiga — <span id="lbl-fad">3</span>/10</label>
+          <label>Fadiga — <span id="lbl-fad">—</span>/10</label>
           <div class="slider-row">
             <span style="font-size:10px;color:var(--muted)">0</span>
-            <input type="range" min="0" max="10" value="3" id="sl-fad">
+            <input type="range" min="0" max="10" value="3" id="sl-fad" class="pristine">
             <span style="font-size:10px;color:var(--muted)">10</span>
-            <span class="sval" id="sv-fad">3</span>
+            <span class="sval pristine" id="sv-fad">3</span>
           </div>
         </div>
         <div class="status-pills">
@@ -2279,21 +2300,49 @@ function calcularStatus(fc, sono, fadiga) {
 }
 function calcStatus() {
   const fc=parseInt(document.getElementById('p-fc').value)||0;
-  const sono=parseInt(document.getElementById('sl-sono').value);
-  const fad=parseInt(document.getElementById('sl-fad').value);
-  syncSlider('sono',sono); syncSlider('fad',fad);
-  if (!fc) return null;
+  // [P-2] Sliders em estado pristine (não tocados) contam como "não preenchido".
+  // Antes os valores default (5/3) calculavam status silenciosamente, sugerindo
+  // ao usuário que ele já tinha registrado seu sono/fadiga reais.
+  const slSono = document.getElementById('sl-sono');
+  const slFad  = document.getElementById('sl-fad');
+  const sonoPreenchido = !slSono.classList.contains('pristine');
+  const fadPreenchido  = !slFad.classList.contains('pristine');
+  const sono = sonoPreenchido ? parseInt(slSono.value) : null;
+  const fad  = fadPreenchido  ? parseInt(slFad.value)  : null;
+  // [P-5] Mensagem dinâmica: lista exatamente o que falta preencher
+  const faltam = [];
+  if (!fc) faltam.push('FC repouso');
+  if (!sonoPreenchido) faltam.push('sono');
+  if (!fadPreenchido)  faltam.push('fadiga');
+  const stAcaoEl = document.getElementById('st-acao');
+  if (faltam.length > 0) {
+    ['g','y','r'].forEach(x=>document.getElementById('pill-'+x).classList.add('off'));
+    const lista = faltam.length === 1 ? faltam[0]
+                : faltam.length === 2 ? `${faltam[0]} e ${faltam[1]}`
+                : `${faltam.slice(0,-1).join(', ')} e ${faltam[faltam.length-1]}`;
+    stAcaoEl.textContent = `Preencha ${lista} para calcular o status.`;
+    syncHeaderStatus(null);
+    return null;
+  }
   const st=calcularStatus(fc,sono,fad);
   ['g','y','r'].forEach(x=>document.getElementById('pill-'+x).classList.add('off'));
   document.getElementById('pill-'+st[0].toLowerCase()).classList.remove('off');
   const msgs={GREEN:'✅ Seguir o plano normalmente.',YELLOW:'⚠️ Manter volume e cortar intensidade.',RED:'🛑 Reduzir 30–50% da carga ou descansar.'};
-  document.getElementById('st-acao').textContent = msgs[st];
+  stAcaoEl.textContent = msgs[st];
   syncHeaderStatus(st);
   return st;
 }
 function syncSlider(n, v) {
-  document.getElementById('lbl-'+n).textContent=v;
-  document.getElementById('sv-'+n).textContent=v;
+  // [P-2] Primeira interação remove o estado pristine: revela o número real.
+  const sl  = document.getElementById('sl-'+n);
+  const sv  = document.getElementById('sv-'+n);
+  const lbl = document.getElementById('lbl-'+n);
+  if (sl && sl.classList.contains('pristine')) {
+    sl.classList.remove('pristine');
+    if (sv) sv.classList.remove('pristine');
+  }
+  if (lbl) lbl.textContent = v;
+  if (sv)  sv.textContent  = v;
 }
 function syncHeaderStatus(st) {
   const hb=document.getElementById('headerStatus');
@@ -2308,9 +2357,20 @@ function salvarPront() {
   const fc=parseInt(document.getElementById('p-fc').value);
   const sem=parseInt(document.getElementById('p-sem').value);
   const dia=document.getElementById('p-dia').value;
-  const sono=parseInt(document.getElementById('sl-sono').value);
-  const fad=parseInt(document.getElementById('sl-fad').value);
+  // [P-2] Sliders pristine = não preenchidos. Exigir interação antes de salvar
+  // para evitar registrar 5/3 como "valores reais" do dia sem o usuário avaliar.
+  const slSono = document.getElementById('sl-sono');
+  const slFad  = document.getElementById('sl-fad');
+  const sonoPristine = slSono.classList.contains('pristine');
+  const fadPristine  = slFad.classList.contains('pristine');
   if (!data||!fc){toast('Preencha a data e a FC · ambas são obrigatórias para calcular o status do dia.',true);return;}
+  if (sonoPristine || fadPristine) {
+    const faltam = [sonoPristine && 'sono', fadPristine && 'fadiga'].filter(Boolean).join(' e ');
+    toast(`Ajuste o slider de ${faltam} antes de salvar.`, true);
+    return;
+  }
+  const sono=parseInt(slSono.value);
+  const fad=parseInt(slFad.value);
   if (!validarDataRegistro(data, 'prontidão')) return; // [QW2]
   const dataNorm = normalizarData(data);
   const st=calcularStatus(fc,sono,fad);
