@@ -3331,10 +3331,42 @@ function renderLogTab() {
   });
   setupChipScroll('logChips');
   const lSel=log.filter(r=>Number(r.semana)===Number(logSem));
+  // [C-2 + C-3] Cabeçalho da semana selecionada com intervalo de datas e
+  // totalizadores (km realizados / planejados, sessões, aderência).
+  const intervalo = getIntervaloSemanaStr(logSem);
+  const tot = getTotalSemanaCorrida(logSem);
+  const intervaloHtml = intervalo
+    ? `<span style="font-size:11px;color:var(--muted);font-weight:500;margin-left:8px">${intervalo.iniStr} – ${intervalo.fimStr}</span>`
+    : '';
+  const aderColor = tot.aderencia == null ? 'var(--muted)'
+                  : tot.aderencia >= 90  ? 'var(--green)'
+                  : tot.aderencia >= 70  ? 'var(--yellow)' : 'var(--red)';
+  const aderTxt = tot.aderencia == null ? '—' : `${tot.aderencia}%`;
+  const cabecalho = `
+    <div style="margin:10px 0 8px 0;padding:10px 12px;background:var(--panel);border:1px solid var(--b1);border-radius:6px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;color:var(--text);letter-spacing:.5px">
+          Semana ${logSem}${intervaloHtml}
+        </div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">${tot.sessoes} ${tot.sessoes===1?'sessão':'sessões'}</div>
+      </div>
+      <div style="display:flex;gap:14px;margin-top:6px;font-family:'Barlow Condensed',sans-serif">
+        <div>
+          <span style="font-size:18px;font-weight:700;color:var(--green)">${tot.kmReal.toFixed(1)}</span><span style="font-size:11px;color:var(--muted)">km realizados</span>
+        </div>
+        ${tot.kmPlan > 0 ? `
+        <div>
+          <span style="font-size:18px;font-weight:700;color:var(--text)">${tot.kmPlan}</span><span style="font-size:11px;color:var(--muted)">km planejados</span>
+        </div>
+        <div>
+          <span style="font-size:18px;font-weight:700;color:${aderColor}">${aderTxt}</span><span style="font-size:11px;color:var(--muted)">aderência</span>
+        </div>` : ''}
+      </div>
+    </div>`;
   // Agrupar por data para mostrar indicador de múltiplas sessões
   const contPorData = {};
   lSel.forEach(r => { contPorData[r.data] = (contPorData[r.data]||0) + 1; });
-  document.getElementById('logList').innerHTML=lSel.map(r=>`
+  document.getElementById('logList').innerHTML = cabecalho + lSel.map(r=>`
     <div class="dia-item" onclick="showDetLog('${r.id||r.data}')">
       <div class="dia-dot ${r.km>0?'GREEN':'empty'}"></div>
       <div class="dia-info">
@@ -4735,7 +4767,29 @@ function renderForcaTab() {
   });
   setupChipScroll('forcaChips');
   const sel = lst.filter(r => Number(r.semana)===Number(forcaSem));
-  document.getElementById('forcaList').innerHTML = sel.map(r => `
+  // [F-2 + F-3] Cabeçalho da semana selecionada com intervalo de datas e
+  // totalizadores (sessões e exercícios totais).
+  const intervalo = getIntervaloSemanaStr(forcaSem);
+  const tot = getTotalSemanaForca(forcaSem);
+  const intervaloHtml = intervalo
+    ? `<span style="font-size:11px;color:var(--muted);font-weight:500;margin-left:8px">${intervalo.iniStr} – ${intervalo.fimStr}</span>`
+    : '';
+  const cabecalhoForca = `
+    <div style="margin:10px 0 8px 0;padding:10px 12px;background:var(--panel);border:1px solid var(--b1);border-radius:6px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;color:var(--text);letter-spacing:.5px">
+          Semana ${forcaSem}${intervaloHtml}
+        </div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">${tot.sessoes} ${tot.sessoes===1?'sessão':'sessões'}</div>
+      </div>
+      ${tot.sessoes > 0 ? `
+      <div style="display:flex;gap:14px;margin-top:6px;font-family:'Barlow Condensed',sans-serif">
+        <div>
+          <span style="font-size:18px;font-weight:700;color:var(--orange)">${tot.exercicios}</span><span style="font-size:11px;color:var(--muted)">exercícios totais</span>
+        </div>
+      </div>` : ''}
+    </div>`;
+  document.getElementById('forcaList').innerHTML = cabecalhoForca + sel.map(r => `
     <div class="forca-item" onclick="showDetForca(${r.id})">
       <div class="forca-item-icon">💪</div>
       <div class="forca-item-info">
@@ -8311,6 +8365,50 @@ function dataToDia(dataStr) {
   if (!dataStr) return '';
   const d = new Date(dataStr + 'T12:00:00');
   return DIAS_PT[d.getDay()];
+}
+
+// [Lote 3] Helpers para cabeçalhos e totalizadores semanais reutilizados
+// pelas abas Corrida e Força. Não duplica lógica: aproveita gerarDataPlano,
+// getAncoraDoCiclo e getPlanoEfetivo já existentes.
+
+// Retorna { iniStr: 'DD/MM', fimStr: 'DD/MM' } da semana N, respeitando a
+// âncora do ciclo (ordem real dos dias). Retorna null se não conseguir.
+function getIntervaloSemanaStr(sem) {
+  try {
+    const ordem = getAncoraDoCiclo(sem).ordemDias;
+    if (!ordem || !ordem.length) return null;
+    const iniRaw = gerarDataPlano(sem, ordem[0]);
+    const fimRaw = gerarDataPlano(sem, ordem[ordem.length - 1]);
+    if (!iniRaw || !fimRaw) return null;
+    const [yi, mi, di] = iniRaw.split('-');
+    const [yf, mf, df] = fimRaw.split('-');
+    return { iniStr: `${di}/${mi}`, fimStr: `${df}/${mf}` };
+  } catch(e) { return null; }
+}
+
+// Totalizadores da semana N para a aba Corrida: km realizados, km planejados
+// (do plano efetivo), número de sessões registradas e aderência %.
+function getTotalSemanaCorrida(sem) {
+  const log = getLog().filter(r => Number(r.semana) === Number(sem));
+  const kmReal = log.reduce((a, r) => a + (Number(r.km) || 0), 0);
+  const sessoes = log.filter(r => (Number(r.km)||0) > 0).length;
+  let kmPlan = 0;
+  try {
+    const planoEf = getPlanoEfetivo();
+    kmPlan = planoEf.filter(p => Number(p.semana) === Number(sem))
+                    .reduce((a, p) => a + (Number(p.km) || 0), 0);
+  } catch(e) {}
+  const aderencia = kmPlan > 0 ? Math.round((kmReal / kmPlan) * 100) : null;
+  return { kmReal, kmPlan, sessoes, aderencia };
+}
+
+// Totalizadores da semana N para a aba Força: número de sessões e total de
+// exercícios feitos.
+function getTotalSemanaForca(sem) {
+  const lst = getForca().filter(r => Number(r.semana) === Number(sem));
+  const sessoes = lst.length;
+  const exercicios = lst.reduce((a, r) => a + ((r.exercicios||[]).length), 0);
+  return { sessoes, exercicios };
 }
 
 function dataToPlanSemana(dataStr) {
