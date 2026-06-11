@@ -895,7 +895,11 @@ input[type=range]::-webkit-slider-thumb{
     </div>
     <div class="card">
       <div class="card-title">Distribuição de status <span>dias GREEN / YELLOW / RED</span></div>
-      <canvas id="cStatus" role="img" aria-label="Gráfico de distribuição de status: dias GREEN versus YELLOW versus RED no período selecionado" height="160"></canvas>
+      <!-- [VG-3] Wrapper com max-width centralizado para o donut não desperdiçar
+           espaço lateral. Mantém canvas responsivo dentro do limite. -->
+      <div style="max-width:380px;margin:0 auto">
+        <canvas id="cStatus" role="img" aria-label="Gráfico de distribuição de status: dias GREEN versus YELLOW versus RED no período selecionado" height="160"></canvas>
+      </div>
     </div>
   </div>
 
@@ -1251,7 +1255,7 @@ input[type=range]::-webkit-slider-thumb{
         </div>
         <div class="fgroup" style="margin-bottom:14px">
           <label>Observações</label>
-          <textarea id="f-notas" placeholder="Como foi a sessão? Alguma dificuldade ou PR?"></textarea>
+          <textarea id="f-notas" placeholder="Como foi a sessão? Alguma dificuldade ou recorde pessoal?"></textarea>
         </div>
         <button class="btn btn-primary btn-full" onclick="salvarForca()">Salvar sessão de força</button>
       </div><!-- /forcaForm -->
@@ -1401,6 +1405,11 @@ input[type=range]::-webkit-slider-thumb{
 
     <!-- DIREITA: Histórico + última medição -->
     <div class="data-col">
+      <!-- [CO-7] Totalizador agregado da composição corporal:
+           total de medições, semanas cobertas e variação líquida desde a primeira. -->
+      <div id="corpoTotalizador" style="display:none;margin-bottom:14px;padding:12px 14px;background:var(--panel);border:1px solid var(--b1);border-radius:8px">
+        <!-- conteúdo gerado por renderCorpoTotalizador() -->
+      </div>
       <div class="stitle">Última medição</div>
       <div id="corpoUltima">
         <div class="empty"><div class="empty-icon">⚖️</div><div class="empty-txt">Nenhuma medição registrada ainda.</div></div>
@@ -3564,7 +3573,8 @@ function atualizarKPIs() {
   const ader=planReal>0?Math.round((kmAcc/planReal)*100):null;
   const cargaTotal=log.reduce((s,r)=>s+(Number(r.carga)||0),0);
   const efics=log.filter(r=>Number(r.efic)>0).map(r=>Number(r.efic));
-  const eficM=efics.length>0?(efics.reduce((a,v)=>a+v,0)/efics.length).toFixed(4):null;
+  // [VG-2] Eficiência com 2 decimais (era 4) — 3.20 em vez de 3.1960
+  const eficM=efics.length>0?(efics.reduce((a,v)=>a+v,0)/efics.length).toFixed(2):null;
   const drifts=log.filter(r=>Number(r.drift)>0).map(r=>Number(r.drift));
   const driftM=drifts.length>0?(drifts.reduce((a,v)=>a+v,0)/drifts.length).toFixed(1):null;
   const semsTotal = getSemsPlano();
@@ -4054,15 +4064,53 @@ function renderGraficoVo2Overview() {
   if (!wrap) return;
   if (logVo2.length < 2) { wrap.style.display='none'; return; }
   wrap.style.display = 'block';
+
+  // [VG-1] Agregar VO₂ conforme o filtroOv.tipo (semana/dia/mês), consistente
+  // com os outros gráficos da Visão Geral. Antes plotava 1 ponto por treino
+  // (~80 pontos), o que destoava do padrão semanal das outras métricas.
+  const tipo = filtroOv.tipo || 'semana';
+  let labels, valores;
+
+  if (tipo === 'dia') {
+    // Por dia: cada treino é um ponto (comportamento original)
+    labels = logVo2.map(r => fmtData(r.data).slice(0,5));
+    valores = logVo2.map(r => r.vo2);
+  } else if (tipo === 'mes') {
+    // Por mês: média mensal
+    const grupos = {};
+    logVo2.forEach(r => {
+      const ym = r.data.slice(0,7); // YYYY-MM
+      (grupos[ym] = grupos[ym] || []).push(r.vo2);
+    });
+    const keys = Object.keys(grupos).sort();
+    labels = keys.map(ym => {
+      const [y,m] = ym.split('-');
+      return `${m}/${y.slice(2)}`;
+    });
+    valores = keys.map(k => +(grupos[k].reduce((a,v)=>a+v,0)/grupos[k].length).toFixed(1));
+  } else {
+    // Por semana: média semanal do plano
+    const grupos = {};
+    logVo2.forEach(r => {
+      const sem = dataToPlanSemana(r.data);
+      if (sem) (grupos[sem] = grupos[sem] || []).push(r.vo2);
+    });
+    const keys = Object.keys(grupos).map(Number).sort((a,b)=>a-b);
+    labels = keys.map(s => `S${s}`);
+    valores = keys.map(k => +(grupos[k].reduce((a,v)=>a+v,0)/grupos[k].length).toFixed(1));
+  }
+
+  if (valores.length < 2) { wrap.style.display='none'; return; }
+
   dc('cOvVo2');
   const gc = 'rgba(255,255,255,0.04)';
   charts['cOvVo2'] = new Chart(document.getElementById('cOvVo2'), {
     type:'line',
-    data:{labels: logVo2.map(r => fmtData(r.data).slice(0,5)),
+    data:{labels: labels,
       datasets:[
-        {data: logVo2.map(r=>r.vo2), borderColor:'#a78bfa', backgroundColor:'rgba(167,139,250,.1)',
+        {data: valores, borderColor:'#a78bfa', backgroundColor:'rgba(167,139,250,.1)',
           borderWidth:2, fill:true, tension:.4, pointRadius:4, pointBackgroundColor:'#a78bfa'},
-        {data: logVo2.map(()=>55), borderColor:'rgba(34,197,94,.4)',
+        {data: valores.map(()=>55), borderColor:'rgba(34,197,94,.4)',
           borderWidth:1, borderDash:[4,4], pointRadius:0, fill:false, label:'Meta 55'}
       ]},
     options:{responsive:true,
@@ -6034,6 +6082,51 @@ function renderCorpoTab() {
   const ultima = lstUltima.length > 0 ? lstUltima[lstUltima.length - 1] : null;
   const anterior = lstUltima.length > 1 ? lstUltima[lstUltima.length - 2] : null;
   const divUlt = document.getElementById('corpoUltima');
+
+  // [CO-7] Totalizador agregado: quantas medições, semanas cobertas, variação líquida
+  // desde a primeira medição até a última.
+  const divTot = document.getElementById('corpoTotalizador');
+  if (divTot) {
+    if (lstAll.length < 2) {
+      divTot.style.display = 'none';
+    } else {
+      const primeira = lstAll[0];
+      const last = lstAll[lstAll.length - 1];
+      const semInicial = Number(primeira.semana) || 0;
+      const semFinal   = Number(last.semana) || 0;
+      const semsCobertas = (semFinal > 0 && semInicial >= 0) ? (semFinal - semInicial + 1) : lstAll.length;
+      const dPeso = (last.peso  - primeira.peso ).toFixed(1);
+      const dGord = (last.gordPct - primeira.gordPct).toFixed(1);
+      const dMusc = (last.muscPct - primeira.muscPct).toFixed(1);
+      const sinal = v => parseFloat(v) > 0 ? `+${v}` : v;
+      const corP = parseFloat(dPeso) <= 0 ? 'var(--green)' : 'var(--red)';
+      const corG = parseFloat(dGord) <= 0 ? 'var(--green)' : 'var(--red)';
+      const corM = parseFloat(dMusc) >= 0 ? 'var(--green)' : 'var(--red)';
+      divTot.style.display = 'block';
+      divTot.innerHTML = `
+        <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Visão consolidada · desde a primeira medição</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-family:'Barlow Condensed',sans-serif">
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Medições</div>
+            <div style="font-size:22px;font-weight:700;color:var(--text);line-height:1.1">${lstAll.length}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Semanas</div>
+            <div style="font-size:22px;font-weight:700;color:var(--text);line-height:1.1">${semsCobertas}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Peso Δ</div>
+            <div style="font-size:22px;font-weight:700;color:${corP};line-height:1.1">${sinal(dPeso)}<span style="font-size:11px;color:var(--muted);font-weight:400"> kg</span></div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Gord. Δ</div>
+            <div style="font-size:22px;font-weight:700;color:${corG};line-height:1.1">${sinal(dGord)}<span style="font-size:11px;color:var(--muted);font-weight:400"> %</span></div>
+          </div>
+        </div>
+        <div style="margin-top:6px;font-size:10px;color:var(--muted)">Massa muscular: <strong style="color:${corM}">${sinal(dMusc)} %</strong></div>
+      `;
+    }
+  }
 
   if (!ultima) {
     divUlt.innerHTML = '<div class="empty"><div class="empty-icon">⚖️</div><div class="empty-txt">Nenhuma medição registrada ainda.</div></div>';
