@@ -1408,9 +1408,13 @@ input[type=range].pristine::-webkit-slider-thumb{
 
     <!-- ESQUERDA: Formulário -->
     <div class="form-col">
-      <div class="stitle">Registrar medição <span>balança de bioimpedância</span></div>
+      <!-- [CO-1] Padronização do formulário Corpo no padrão expansível das
+           outras abas (Prontidão, Corrida, Força). Antes era sempre aberto
+           e destoava da consistência arquitetural. -->
+      <button onclick="toggleForm('corpoForm',this)" class="form-toggle-btn">➕ Registrar medição</button>
+      <div id="corpoForm" style="display:none">
       <div class="card">
-        <div class="card-title">Composição corporal <span>semanal</span></div>
+        <div class="card-title">Composição corporal <span>balança de bioimpedância · semanal</span></div>
         <div class="form-grid">
           <div class="fgroup"><label>Data da medição</label><input type="date" id="c-data" oninput="sincronizarData('c')"></div>
           <div class="fgroup"><label>Semana do plano</label>
@@ -1440,6 +1444,7 @@ input[type=range].pristine::-webkit-slider-thumb{
         <div class="fgroup" style="margin-bottom:14px"><label>Observações</label><textarea id="c-obs" placeholder="Contexto da medição, hora, jejum..."></textarea></div>
         <button class="btn btn-primary btn-full" onclick="salvarCorpo()">Salvar medição</button>
       </div>
+      </div><!-- /corpoForm -->
 
       <!-- Referências -->
       <div class="stitle" style="margin-top:4px">Referências <span>para atleta de endurance masculino</span></div>
@@ -3618,6 +3623,13 @@ function editarCorpo(data) {
 
   goTab(5, document.querySelectorAll('.tab')[5]);
 
+  // [CO-1] Garantir que o formulário esteja aberto antes de preencher
+  const corpoForm = document.getElementById('corpoForm');
+  if (corpoForm && corpoForm.style.display === 'none') {
+    const btn = corpoForm.previousElementSibling;
+    toggleForm('corpoForm', btn);
+  }
+
   document.getElementById('c-data').value      = r.data;
   document.getElementById('c-peso').value      = r.peso     || '';
   document.getElementById('c-imc').value       = r.imc      || '';
@@ -4524,6 +4536,25 @@ function salvarTemplatesForca(templates) {
 
 let exCount = 0;
 
+// [F-4] Formatar carga: 0/vazio → "PC" (peso corporal), >0 → "Xkg"
+// Antes "0" aparecia indistinto de "campo esquecido"; agora exercícios
+// pliométricos / calistênicos ficam visualmente identificados como PC.
+function fmtCargaForca(carga) {
+  const n = Number(carga);
+  if (!Number.isFinite(n) || n <= 0) return 'PC';
+  return `${n}kg`;
+}
+
+// [F-5] Formatar reps/tempo: separar visualmente "10 reps" de "30s".
+// O campo aceita texto livre ("12" ou "30s"). Se já contém "s" ou "min",
+// mantém como está. Se é numérico puro, mostra "Nx" (N repetições).
+function fmtRepsForca(reps) {
+  if (reps == null || reps === '') return '—';
+  const s = String(reps).trim();
+  if (/^\d+\.?\d*$/.test(s)) return `${s}×`;          // "12" → "12×"
+  return s;                                            // "30s", "1min" → mantém
+}
+
 function addExercicio(dados={}) {
   exCount++;
   const id = 'ex-'+exCount;
@@ -4541,12 +4572,12 @@ function addExercicio(dados={}) {
       <input type="number" placeholder="3" min="1" max="20" value="${dados.series||''}">
     </div>
     <div class="fgroup">
-      <label>Reps / Tempo</label>
+      <label>Reps ou tempo <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">· 12 (reps) ou 30s</span></label>
       <input type="text" placeholder="12 ou 30s" value="${dados.reps||''}">
     </div>
     <div class="fgroup">
-      <label>Carga (kg)</label>
-      <input type="number" placeholder="0" min="0" max="500" step="0.5" value="${dados.carga||''}">
+      <label>Carga <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">· kg, vazio = peso corporal</span></label>
+      <input type="number" placeholder="PC" min="0" max="500" step="0.5" value="${dados.carga||''}">
     </div>
     <div class="ex-del">
       <button class="ex-del-btn" onclick="document.getElementById('${id}').remove()" title="Remover">✕</button>
@@ -4884,8 +4915,8 @@ function showDetForca(id) {
           <tbody>${r.exercicios.map(e=>`
             <tr>
               <td style="color:var(--text)">${e.nome}</td>
-              <td>${e.series}</td><td>${e.reps}</td>
-              <td>${e.carga > 0 ? e.carga+'kg' : '—'}</td>
+              <td>${e.series}</td><td>${fmtRepsForca(e.reps)}</td>
+              <td>${fmtCargaForca(e.carga)}</td>
             </tr>`).join('')}
           </tbody>
         </table>
