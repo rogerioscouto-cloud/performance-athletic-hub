@@ -1170,6 +1170,12 @@ input[type=range].pristine::-webkit-slider-thumb{
         <button class="btn btn-primary btn-full" onclick="salvarLog()">Salvar treino</button>
       </div>
 
+      <!-- [C-1] Área de upload de treinos passados / planilha externa colapsada
+           por padrão. Você confirmou que não usa esse fluxo no dia a dia
+           (registra direto pelo formulário acima); aqui fica disponível mas
+           não compete por atenção. -->
+      <button onclick="toggleForm('logImportForm',this)" class="form-toggle-btn" style="margin-top:4px">➕ Importar planilha de treinos</button>
+      <div id="logImportForm" style="display:none">
       <div class="stitle" style="margin-top:4px">Importar planilha <span>formato Painel PRO++ (.xlsx)</span></div>
       <div class="card">
         <div class="card-title">Importar dados da planilha Excel <span>Corrida · Prontidão Diária</span></div>
@@ -1200,6 +1206,7 @@ input[type=range].pristine::-webkit-slider-thumb{
         </div>
         <div id="importStatus" style="display:none;margin-top:12px;font-size:12px;color:var(--muted);text-align:center"></div>
       </div>
+      </div><!-- /logImportForm -->
     </div>
 
     <!-- DIREITA: Histórico -->
