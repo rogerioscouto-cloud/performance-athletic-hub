@@ -334,6 +334,38 @@ input[type=range].pristine::-webkit-slider-thumb{
 .spill.GREEN::before  { content: "● "; font-size: 10px; vertical-align: 1px; }
 .spill.YELLOW::before { content: "▲ "; font-size: 10px; vertical-align: 1px; }
 .spill.RED::before    { content: "■ "; font-size: 10px; vertical-align: 1px; }
+
+/* [P-4] Etiqueta única de status calculado — substitui o trio GREEN/YELLOW/RED
+   que parecia botões clicáveis. Um único bloco compacto com badge colorido +
+   ação recomendada lado a lado. */
+.status-result{
+  display:flex;align-items:center;gap:12px;
+  padding:10px 14px;
+  background:var(--panel);border:1px solid var(--b1);border-radius:6px;
+  margin:10px 0;
+  min-height:44px;
+  transition:background .2s, border-color .2s;
+}
+.status-result-badge{
+  font-family:'Barlow Condensed',sans-serif;
+  font-size:14px;font-weight:700;letter-spacing:1.5px;
+  padding:6px 12px;border-radius:4px;
+  background:var(--b1);color:var(--muted);
+  flex-shrink:0;min-width:80px;text-align:center;
+}
+.status-result-acao{
+  font-size:12px;color:var(--muted);flex:1;line-height:1.4;
+}
+/* estados aplicados via JS na div pai */
+.status-result.GREEN  {background:var(--gbg);border-color:rgba(34,197,94,.3)}
+.status-result.YELLOW {background:var(--ybg);border-color:rgba(245,158,11,.3)}
+.status-result.RED    {background:var(--rbg);border-color:rgba(239,68,68,.3)}
+.status-result.GREEN  .status-result-badge {background:var(--green);color:#0a0f1f}
+.status-result.YELLOW .status-result-badge {background:var(--yellow);color:#0a0f1f}
+.status-result.RED    .status-result-badge {background:var(--red);color:#fff}
+.status-result.GREEN  .status-result-acao  {color:var(--green)}
+.status-result.YELLOW .status-result-acao  {color:var(--yellow)}
+.status-result.RED    .status-result-acao  {color:var(--red)}
 .hbadge.GREEN::before  { content: "● "; font-size: 9px; }
 .hbadge.YELLOW::before { content: "▲ "; font-size: 9px; }
 .hbadge.RED::before    { content: "■ "; font-size: 9px; }
@@ -517,6 +549,15 @@ input[type=range].pristine::-webkit-slider-thumb{
 .pont-card.YELLOW{background:var(--ybg);border-color:rgba(245,158,11,.3)}
 .pont-card.RED   {background:var(--rbg);border-color:rgba(239,68,68,.3)}
 .pont-card.empty {background:var(--panel)}
+/* [P-1] Destaque do dia atual no calendário da Prontidão. Borda mais grossa em
+   ciano (cor de acento) que sobrepõe a cor de status do dia. Antes o realce
+   ficava apenas no nome do dia em ciano, e a borda vermelha de RED dominava
+   visualmente, fazendo parecer que o dia em foco era o registrado, não o
+   atual. */
+.pont-card.hoje {
+  border:2px solid var(--accent);
+  box-shadow:0 0 0 1px var(--accent), 0 0 8px rgba(0,212,255,.2);
+}
 .pont-dia{font-family:'Barlow Condensed',sans-serif;font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px}
 .pont-st{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600}
 .pont-st.GREEN {color:var(--green)}
@@ -1077,12 +1118,14 @@ input[type=range].pristine::-webkit-slider-thumb{
             <span class="sval pristine" id="sv-fad">3</span>
           </div>
         </div>
-        <div class="status-pills">
-          <div class="spill GREEN  off" id="pill-g">GREEN</div>
-          <div class="spill YELLOW off" id="pill-y">YELLOW</div>
-          <div class="spill RED    off" id="pill-r">RED</div>
+        <!-- [P-4] Etiqueta única de resultado em vez do trio GREEN/YELLOW/RED.
+             O design antigo (3 caixas lado a lado) sugeria botões clicáveis,
+             mas o status é calculado automaticamente. Agora um único bloco
+             mostra o status apurado + ação recomendada. -->
+        <div class="status-result" id="status-result">
+          <div class="status-result-badge" id="status-result-badge">—</div>
+          <div class="status-result-acao" id="st-acao">Preencha FC repouso, sono e fadiga para calcular o status.</div>
         </div>
-        <div class="status-acao" id="st-acao">Preencha a FC, sono e fadiga para calcular o status.</div>
         <button class="btn btn-primary btn-full" onclick="salvarPront()">Salvar prontidão</button>
       </div>
       </div><!-- /prontForm -->
@@ -1145,7 +1188,7 @@ input[type=range].pristine::-webkit-slider-thumb{
         </div>
         <div class="form-grid">
           <div class="fgroup"><label>FC média (bpm)</label><input type="number" id="l-fc" placeholder="135" min="60" max="220"></div>
-          <div class="fgroup"><label>Drift cardíaco (%)</label><input type="number" id="l-drift" placeholder="0.0" min="0" max="30" step="0.1"></div>
+          <div class="fgroup"><label>Drift cardíaco (%)</label><input type="number" id="l-drift" placeholder="—" min="0" max="30" step="0.1"></div>
         </div>
         <div class="form-grid">
           <div class="fgroup"><label>Calorias (kcal)</label><input type="number" id="l-kcal" placeholder="450" min="0" max="5000" step="1"></div>
@@ -2321,9 +2364,17 @@ function calcStatus() {
   if (!fc) faltam.push('FC repouso');
   if (!sonoPreenchido) faltam.push('sono');
   if (!fadPreenchido)  faltam.push('fadiga');
+  // [P-4] Etiqueta única de resultado: bloco status-result com badge + ação
+  const stResult = document.getElementById('status-result');
+  const stBadge  = document.getElementById('status-result-badge');
   const stAcaoEl = document.getElementById('st-acao');
+  // Helper para limpar classes de status anteriores
+  const limparEstado = () => {
+    if (stResult) stResult.classList.remove('GREEN','YELLOW','RED');
+  };
   if (faltam.length > 0) {
-    ['g','y','r'].forEach(x=>document.getElementById('pill-'+x).classList.add('off'));
+    limparEstado();
+    if (stBadge) stBadge.textContent = '—';
     const lista = faltam.length === 1 ? faltam[0]
                 : faltam.length === 2 ? `${faltam[0]} e ${faltam[1]}`
                 : `${faltam.slice(0,-1).join(', ')} e ${faltam[faltam.length-1]}`;
@@ -2332,8 +2383,12 @@ function calcStatus() {
     return null;
   }
   const st=calcularStatus(fc,sono,fad);
-  ['g','y','r'].forEach(x=>document.getElementById('pill-'+x).classList.add('off'));
-  document.getElementById('pill-'+st[0].toLowerCase()).classList.remove('off');
+  limparEstado();
+  if (stResult) stResult.classList.add(st);
+  if (stBadge) {
+    const glifo = st==='GREEN'?'●':st==='YELLOW'?'▲':'■';
+    stBadge.textContent = `${glifo} ${st}`;
+  }
   const msgs={GREEN:'✅ Seguir o plano normalmente.',YELLOW:'⚠️ Manter volume e cortar intensidade.',RED:'🛑 Reduzir 30–50% da carga ou descansar.'};
   stAcaoEl.textContent = msgs[st];
   syncHeaderStatus(st);
@@ -3285,8 +3340,10 @@ function renderProntidao() {
     const diaNum = dataD.slice(8,10);
     const mesNum = dataD.slice(5,7);
     const ehHoje = dataD === dataHoje();
-    return `<div class="pont-card ${r?r.status:'empty'}">
-      <div class="pont-dia" style="${ehHoje?'color:var(--accent);font-weight:800':''}">${d}</div>
+    // [P-1] Classe "hoje" adicional aplica borda ciano destacada,
+    // sobrepondo a cor de status do dia.
+    return `<div class="pont-card ${r?r.status:'empty'}${ehHoje?' hoje':''}">
+      <div class="pont-dia" style="${ehHoje?'color:var(--accent);font-weight:800':''}">${d}${ehHoje?' <span style="font-size:8px;background:var(--accent);color:#000;padding:1px 4px;border-radius:2px;letter-spacing:.5px;font-weight:700">HOJE</span>':''}</div>
       <div style="font-size:9px;color:var(--muted);margin-bottom:2px">${diaNum}/${mesNum}</div>
       <div class="pont-st ${r?r.status:''}">${r?r.status:'—'}</div>
       <div class="pont-fc">${r?r.fc+' bpm':'—'}</div>
