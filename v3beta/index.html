@@ -5866,8 +5866,28 @@ function renderPlanoTab() {
       carga: r.carga||0, tempo: r.tempo||0, obs: r.obs||''
     }).replace(/'/g,"&#39;").replace(/"/g,'&quot;');
 
+    // [PL-5] Faixa lateral colorida indicando status do slot, sem competir
+    // com o conteúdo principal (km/treino). Cor é derivada das variáveis já
+    // calculadas pela lógica multi-caso acima (slotCumprido, realizadoDia,
+    // isFuturo, isDescanso) — não duplica regra.
+    // - verde: realizado (slotCumprido com no_prazo/adiantado)
+    // - amarelo: realizado atrasado
+    // - ciano: dia atual ainda pendente
+    // - vermelho: dia passado não cumprido (perdido)
+    // - sem faixa: descanso, futuro
+    let faixaLateral = '';
+    if (slotCumprido) {
+      faixaLateral = (realizadoDia && realizadoDia.statusPlano === 'atrasado')
+                     ? 'var(--yellow)' : 'var(--green)';
+    } else if (!isDescanso && !isFuturo) {
+      // passado não cumprido OU hoje pendente
+      const ehHojeAqui = dataDesteDia === dataHoje();
+      faixaLateral = ehHojeAqui ? 'var(--accent)' : 'var(--red)';
+    }
+    const styleFaixa = faixaLateral ? `border-left:3px solid ${faixaLateral};` : '';
+
     html += `
-      <div style="background:${cellBg};border:1px solid ${cellBd};border-radius:6px;padding:8px 6px;
+      <div style="background:${cellBg};border:1px solid ${cellBd};${styleFaixa}border-radius:6px;padding:8px 6px;
         text-align:center;cursor:pointer;min-height:80px;opacity:${cellOpacity};
         display:flex;flex-direction:column;align-items:center;justify-content:space-between;
         transition:border-color .15s,opacity .15s"
@@ -6691,14 +6711,38 @@ function renderAnalise() {
   const temDadosPace = paces.some(p=>p!==null && p>0);
   const temDadosFC   = fcs.some(f=>f!==null && f>0);
 
+  // [EV-1 + EV-2 + EV-4] Semana atual identificada — usada pelo resumo
+  // ("EM CURSO") e pelos gráficos (último ponto/barra como parcial).
+  const semHojeNum = dataToPlanSemana(dataHoje());
+
+  // [EV-2 + EV-4] Identificar índice do ponto da semana atual quando estamos
+  // na escala semanal — usado para destacar visualmente como "parcial".
+  // O último ponto da semana em curso fica com cor mais clara,
+  // sinalizando que os valores ainda não refletem a semana completa.
+  const idxParcial = (escalaAnalise === 'sem')
+    ? labs.findIndex(l => l === `S${semHojeNum}`)
+    : -1;
+  // Função que devolve array de cores por ponto (todos cor padrão, exceto
+  // o índice parcial que recebe cor mais clara).
+  const corPorPonto = (corBase, corParcial) =>
+    labs.map((_,i) => i === idxParcial ? corParcial : corBase);
+
   dc('cPaceEvo');
   if(rows.length>0 && temDadosPace){
     charts['cPaceEvo']=new Chart(document.getElementById('cPaceEvo'),{
       type:'line',
       data:{labels:labs,datasets:[{data:paces,borderColor:'#00d4ff',backgroundColor:'rgba(0,212,255,.08)',
-        borderWidth:2,fill:true,tension:.4,pointRadius:5,pointBackgroundColor:'#00d4ff',spanGaps:true}]},
+        borderWidth:2,fill:true,tension:.4,pointRadius:5,
+        // [EV-2] Cor diferenciada no ponto da semana parcial
+        pointBackgroundColor: corPorPonto('#00d4ff', 'rgba(0,212,255,.35)'),
+        pointBorderColor:    corPorPonto('#00d4ff', '#00d4ff'),
+        pointBorderWidth:    labs.map((_,i) => i === idxParcial ? 2 : 1),
+        spanGaps:true}]},
       options:{responsive:true,plugins:{legend:{display:false},
-        tooltip:{callbacks:{label:ctx=>ctx.raw>0?segParaPace(ctx.raw):''}}},
+        tooltip:{callbacks:{label:ctx=>{
+          const v = ctx.raw>0?segParaPace(ctx.raw):'';
+          return ctx.dataIndex === idxParcial ? `${v} (parcial)` : v;
+        }}}},
         scales:{
           x:{grid:{color:gc},ticks:{color:'#64748b',font:{size:10}}},
           y:{grid:{color:gc},ticks:{color:'#64748b',font:{size:10},callback:v=>v>0?segParaPace(v):''},reverse:true}
@@ -6753,10 +6797,17 @@ function renderAnalise() {
     charts['cCargaEvo'] = new Chart(document.getElementById('cCargaEvo'), {
       type:'bar',
       data:{labels:labs, datasets:[{
-        data: cargas, backgroundColor:'rgba(245,158,11,.5)', borderColor:'#f59e0b',
+        data: cargas,
+        // [EV-4] Barra da semana parcial com cor esmaecida + borda diferente
+        backgroundColor: corPorPonto('rgba(245,158,11,.5)', 'rgba(245,158,11,.2)'),
+        borderColor:     corPorPonto('#f59e0b', 'rgba(245,158,11,.6)'),
         borderWidth:1, borderRadius:3
       }]},
-      options:{responsive:true, plugins:{legend:{display:false}},
+      options:{responsive:true, plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>{
+          const v = ctx.raw + ' UA';
+          return ctx.dataIndex === idxParcial ? `${v} (parcial)` : v;
+        }}}},
         scales:{
           x:{grid:{color:gc2}, ticks:{color:'#64748b',font:{size:10}}},
           y:{grid:{color:gc2}, ticks:{color:'#64748b',font:{size:10},callback:v=>v+' UA'}}
@@ -6765,13 +6816,32 @@ function renderAnalise() {
     setHTML('cCargaEvo','<div class="empty"><div class="empty-icon">⚡</div><div class="empty-txt">Registre treinos com carga para ver a evolução</div></div>',true);
   }
 
+  // [EV-1] Semana atual identificada para tratamento "em curso" — não
+  // engana o usuário com aderência parcial parecendo semana fechada.
+  // (semHojeNum já foi calculado antes dos gráficos para EV-2/EV-4)
+
   // Resumo cards
-  document.getElementById('analise-list').innerHTML=rows.map(r=>`
-    <div class="sem-row">
-      <div><div class="sem-num">Semana ${r.s}</div><span class="badge ${r.st}">${r.st}</span></div>
+  document.getElementById('analise-list').innerHTML=rows.map(r=>{
+    const ehSemAtual = r.s === semHojeNum;
+    // [EV-9] Tooltip explicando o critério multifatorial GREEN/YELLOW/RED.
+    // Antes a cor aparecia opaca; agora ao passar o mouse o usuário entende
+    // o porquê (aderência, drift, prontidão RED/YELLOW da semana).
+    const breakdown = [];
+    breakdown.push(`Aderência: ${Math.round(r.ader*100)}% ${r.ader>=.9?'✓':r.ader>=.7?'⚠':'✗'}`);
+    if (r.dM > 0) breakdown.push(`Drift médio: ${r.dM.toFixed(1)}% ${r.dM<5?'✓':r.dM<10?'⚠':'✗'}`);
+    breakdown.push(`Pront. RED: ${pront.filter(x => Number(x.semana)===r.s && x.status==='RED').length}`);
+    breakdown.push(`Pront. YELLOW: ${pront.filter(x => Number(x.semana)===r.s && x.status==='YELLOW').length}`);
+    if (ehSemAtual) breakdown.push('(semana ainda em curso — métricas parciais)');
+    const tooltipTxt = `Status ${r.st} · S${r.s}\n${breakdown.join('\n')}`;
+    return `
+    <div class="sem-row" ${ehSemAtual?'style="border-color:var(--accent);box-shadow:0 0 0 1px var(--accent), 0 0 8px rgba(0,212,255,.15)"':''}>
+      <div>
+        <div class="sem-num">Semana ${r.s}${ehSemAtual?' <span style="font-size:8px;background:var(--accent);color:#000;padding:1px 5px;border-radius:2px;letter-spacing:.5px;font-weight:700;vertical-align:2px">EM CURSO</span>':''}</div>
+        <span class="badge ${r.st}" title="${tooltipTxt}" style="cursor:help">${r.st}</span>
+      </div>
       <div class="sem-stats">
         <div class="sem-stat">
-          <div class="sem-stat-val" style="color:${r.ader>=.9?'var(--green)':r.ader>=.7?'var(--yellow)':'var(--red)'}">${Math.round(r.ader*100)}%</div>
+          <div class="sem-stat-val" style="color:${r.ader>=.9?'var(--green)':r.ader>=.7?'var(--yellow)':'var(--red)'}">${Math.round(r.ader*100)}%${ehSemAtual?'<span style="font-size:9px;color:var(--muted);margin-left:3px">parcial</span>':''}</div>
           <div class="sem-stat-lbl">aderência</div>
         </div>
         <div class="sem-stat">
@@ -6783,7 +6853,8 @@ function renderAnalise() {
           <div class="sem-stat-lbl">drift</div>
         </div>`:''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ═══════════════════════════════════════
@@ -7121,7 +7192,10 @@ function calcPrevisao() {
     res.push({
       f: `Pace médio ponderado (${treinosPace.length} treinos)`,
       p: prevMin, tipo:'treino', confianca:'estimativa',
-      detalhe: `Pace treino: ${paceStr(Math.round(pacePond))} → maratona: ${paceStr(Math.round(paceMaratona))}`
+      // [PV-10] Destacar o pace que CASA com o tempo previsto (pace de
+      // maratona). O pace de origem (treino) fica esmaecido para não ser
+      // confundido com o resultado da projeção.
+      detalhe: `Pace treino: <span style="color:var(--muted)">${paceStr(Math.round(pacePond))}</span> → pace maratona: <strong style="color:var(--text)">${paceStr(Math.round(paceMaratona))}</strong>`
     });
   }
 
@@ -7183,7 +7257,8 @@ function calcPrevisao() {
           p: prevDaniels,
           tipo: 'lthr',
           confianca: 'boa',
-          detalhe: `Pace limiar: ${ultimo.pace}/km → pace maratona estimado: ${paceStr(Math.round(paceMaratonaSeg))}/km (método Daniels ×1.08)`
+          // [PV-10] Pace que casa com o tempo previsto em destaque
+          detalhe: `Pace limiar: <span style="color:var(--muted)">${ultimo.pace}/km</span> → pace maratona: <strong style="color:var(--text)">${paceStr(Math.round(paceMaratonaSeg))}/km</strong> (método Daniels ×1.08)`
         });
       }
     } else if (ultimo.bpm) {
@@ -8268,7 +8343,20 @@ function confirmarImportacao(backupRaw) {
 }
 
 function confirmarReset(){
-  if(!confirm('Apagar TODOS os dados? Esta ação é irreversível.')) return;
+  // [CF-10] Confirmação dupla para ação nuclear: primeiro confirm padrão,
+  // depois prompt exigindo que o usuário digite "APAGAR" exatamente.
+  // Protege contra cliques acidentais e contra confirmações automáticas
+  // (alguns navegadores lembram do confirm e auto-aceitam).
+  if(!confirm('Apagar TODOS os dados? Esta ação é IRREVERSÍVEL.\n\nNa próxima etapa você precisará digitar APAGAR para confirmar.')) return;
+  const verificacao = prompt(
+    'Última confirmação:\n\n' +
+    'Para confirmar a exclusão de TODOS os dados (treinos, prontidão, força, ' +
+    'medições, plano, configurações, tênis), digite APAGAR em maiúsculas:'
+  );
+  if (verificacao !== 'APAGAR') {
+    toast('Texto incorreto · operação cancelada (nenhum dado foi apagado).');
+    return;
+  }
   // Apagar todas as chaves do dashboard (LS + chaves extras)
   Object.values(LS).forEach(k => localStorage.removeItem(k));
   localStorage.removeItem(LS_IGN);
