@@ -1583,9 +1583,9 @@ input[type=range].pristine::-webkit-slider-thumb{
   <div class="card" id="prevHistWrap" style="margin-top:6px">
     <div class="card-title">
       Previsão de maratona ao longo do plano
-      <span>histórico longitudinal · pontos claros = reconstruídos</span>
+      <span>histórico longitudinal · ◇ semana com evento · ○ claro = reconstruído</span>
     </div>
-    <canvas id="cPrevHist" role="img" aria-label="Gráfico de evolução da previsão de tempo da maratona ao longo das semanas do plano" height="180"></canvas>
+    <canvas id="cPrevHist" role="img" aria-label="Gráfico de evolução da previsão de tempo da maratona ao longo das semanas do plano"></canvas>
   </div>
 
   <div class="stitle">Tabela detalhada</div>
@@ -7189,7 +7189,7 @@ function calcPrevisao() {
     const label = melhor.km >= 15 ? `Longão ${melhor.km}km` : `Treino ${melhor.km}km`;
     res.push({
       f: `${label} (${fmtData(melhor.data)})`,
-      p: prev, tipo:'treino',
+      p: prev, tipo:'treino', modeloKey: 'longao',
       confianca: melhor.km >= 15 ? 'boa' : melhor.km >= 10 ? 'moderada' : 'baixa — poucos km',
       detalhe: `Pace: ${paceStr(melhor.paceSeg)} · ${melhor.km}km · FC: ${melhor.fc||'—'} bpm`
     });
@@ -7216,7 +7216,7 @@ function calcPrevisao() {
     const prevMin = (paceMaratona * 42.195) / 60;
     res.push({
       f: `Pace médio ponderado (${treinosPace.length} treinos)`,
-      p: prevMin, tipo:'treino', confianca:'estimativa',
+      p: prevMin, tipo:'treino', modeloKey: 'pondPace', confianca:'estimativa',
       // [PV-10] Destacar o pace que CASA com o tempo previsto (pace de
       // maratona). O pace de origem (treino) fica esmaecido para não ser
       // confundido com o resultado da projeção.
@@ -7237,7 +7237,7 @@ function calcPrevisao() {
     const prevMin  = 42.195 / velKmMin;
     res.push({
       f: `VO₂máx ${vo2} ml/kg/min (${fmtData(regVo2.data)})`,
-      p: prevMin, tipo:'vo2', confianca:'estimativa',
+      p: prevMin, tipo:'vo2', modeloKey: 'vo2max', confianca:'estimativa',
       detalhe: `Pace estimado: ${paceStr(Math.round((prevMin*60)/42.195))}`
     });
   }
@@ -7254,6 +7254,12 @@ function calcPrevisao() {
   }
 
   const melhorMin = Math.min(...res.map(r => r.p));
+  // [PV-B4 Fase 2] Identifica qual modelo gerou a melhor estimativa para
+  // exibir tendência também no card principal.
+  const melhorRes = res.find(r => r.p === melhorMin);
+  const melhorTend = (melhorRes && melhorRes.modeloKey)
+    ? calcularTendenciaModelo(melhorRes.modeloKey, melhorMin)
+    : null;
   const perc = Math.min(100, Math.round((180 / melhorMin) * 100));
   const corPerc = melhorMin <= 180 ? 'var(--green)' : melhorMin <= 195 ? 'var(--yellow)' : 'var(--red)';
   const iconPerc = melhorMin <= 180 ? '✅' : '⚠️';
@@ -7280,7 +7286,7 @@ function calcPrevisao() {
         res.push({
           f: `LTHR ${ultimo.bpm}bpm · pace limiar ${ultimo.pace}/km (${fmtData(ultimo.data)})`,
           p: prevDaniels,
-          tipo: 'lthr',
+          tipo: 'lthr', modeloKey: 'lthr',
           confianca: 'boa',
           // [PV-10] Pace que casa com o tempo previsto em destaque
           detalhe: `Pace limiar: <span style="color:var(--muted)">${ultimo.pace}/km</span> → pace maratona: <strong style="color:var(--text)">${paceStr(Math.round(paceMaratonaSeg))}/km</strong> (método Daniels ×1.08)`
@@ -7298,7 +7304,7 @@ function calcPrevisao() {
         res.push({
           f: `LTHR ${ultimo.bpm}bpm (estimativa via FC) (${fmtData(ultimo.data)})`,
           p: prevMin,
-          tipo: 'lthr',
+          tipo: 'lthr', modeloKey: 'lthr',
           confianca: 'estimativa',
           detalhe: `FC limiar ${ultimo.bpm}bpm → VO₂máx estimado ${vo2EstLTHR.toFixed(1)} ml/kg/min`
         });
@@ -7312,15 +7318,22 @@ function calcPrevisao() {
     const cor = r.p <= 180 ? 'var(--green)' : r.p <= 195 ? 'var(--yellow)' : 'var(--red)';
     const badge = r.p <= 180 ? 'Sub-3 ✓' : r.p <= 195 ? 'Próximo' : 'Acima da meta';
     const bgBadge = r.p <= 180 ? 'rgba(34,197,94,.15)' : r.p <= 195 ? 'rgba(245,158,11,.15)' : 'rgba(239,68,68,.15)';
+    // [PV-B4 Fase 2] Seta de tendência: compara valor atual com snapshot
+    // de 4 semanas atrás (fallback para o mais antigo se < 4 disponíveis).
+    const tend = r.modeloKey ? calcularTendenciaModelo(r.modeloKey, r.p) : null;
+    const tendHtml = tend ? fmtTendencia(tend) : '';
     return `
       <div style="background:var(--card);border:1px solid var(--b1);border-radius:6px;padding:12px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div>
+          <div style="flex:1;min-width:0">
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">${r.f}</div>
-            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;color:${cor};line-height:1">${minToHMS(r.p)}</div>
+            <div style="display:flex;align-items:baseline;flex-wrap:wrap">
+              <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;color:${cor};line-height:1">${minToHMS(r.p)}</div>
+              ${tendHtml}
+            </div>
             ${r.detalhe ? `<div style="font-size:10px;color:var(--muted);margin-top:4px">${r.detalhe}</div>` : ''}
           </div>
-          <span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:${bgBadge};color:${cor}">${badge}</span>
+          <span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:${bgBadge};color:${cor};white-space:nowrap;margin-left:8px">${badge}</span>
         </div>
         <div style="font-size:9px;color:var(--muted);margin-top:6px">
           Confiança: <span style="font-weight:700;padding:1px 6px;border-radius:2px;letter-spacing:.5px;
@@ -7339,7 +7352,10 @@ function calcPrevisao() {
   html += `
     <div style="background:var(--card);border:1px solid var(--b1);border-radius:6px;padding:14px;margin-bottom:12px">
       <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Melhor estimativa atual</div>
-      <div style="font-family:'Barlow Condensed',sans-serif;font-size:36px;font-weight:800;color:${corPerc};line-height:1">${minToHMS(melhorMin)}</div>
+      <div style="display:flex;align-items:baseline;flex-wrap:wrap">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:36px;font-weight:800;color:${corPerc};line-height:1">${minToHMS(melhorMin)}</div>
+        ${melhorTend ? fmtTendencia(melhorTend) : ''}
+      </div>
       <div style="font-size:11px;color:var(--muted);margin:8px 0 6px">${iconPerc} ${melhorMin<=180?'Sub-3 viável':'Ainda '+Math.round(melhorMin-180)+' min acima da meta'}</div>
       <div class="prog-bar"><div class="prog-fill" style="width:${perc}%;background:${corPerc}"></div></div>
       <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:4px">
@@ -7659,6 +7675,20 @@ function renderGraficoPrevisaoHist() {
   const nomes = {
     lthr: 'LTHR', vo2max: 'VO₂máx', longao: 'Longão', pondPace: 'Pace ponderado'
   };
+  // [PV-B4 Fase 2] Marcar visualmente as semanas que têm eventos
+  // automáticos (provas, testes LTHR, snapshots manuais) com ponto maior.
+  // Usa estilo de marcador diferenciado, sinalizando "essa semana tem
+  // contexto além do número".
+  const pontoRaio = ordenado.map(s => {
+    const evs = getEventosParaSemana(s.semana);
+    return evs.length > 0 ? 8 : 5;
+  });
+  const pontoStyle = ordenado.map(s => {
+    const evs = getEventosParaSemana(s.semana);
+    // 'rectRot' (losango) destaca sem virar uma estrela chamativa
+    return evs.length > 0 ? 'rectRot' : 'circle';
+  });
+
   const datasets = [
     {
       label: 'Melhor estimativa',
@@ -7668,7 +7698,8 @@ function renderGraficoPrevisaoHist() {
       borderWidth: 3,
       fill: false,
       tension: .3,
-      pointRadius: 5,
+      pointRadius: pontoRaio,
+      pointStyle: pontoStyle,
       pointBackgroundColor: corPonto,
       pointBorderColor: corBordaPonto,
       pointBorderWidth: 2
@@ -7722,6 +7753,18 @@ function renderGraficoPrevisaoHist() {
             const ehReconst = ctx.dataIndex < ordenado.length && ordenado[ctx.dataIndex].reconstruido && ctx.datasetIndex === 0;
             const sufixo = ehReconst ? ' · reconstruído' : '';
             return `${ctx.dataset.label}: ${minToHMS(v)}${sufixo}`;
+          },
+          // [PV-B4 Fase 2] afterBody dispara uma vez por ponto, independente
+          // de quantos datasets coincidam ali. Listamos eventos automáticos
+          // da semana (provas, testes LTHR, snapshots manuais).
+          afterBody: ctxs => {
+            if (!ctxs || ctxs.length === 0) return '';
+            const idx = ctxs[0].dataIndex;
+            if (idx >= ordenado.length) return '';
+            const snap = ordenado[idx];
+            const eventos = getEventosParaSemana(snap.semana);
+            if (eventos.length === 0) return '';
+            return ['', ...eventos.map(e => e.label)];
           }
         }}
       },
@@ -7735,6 +7778,122 @@ function renderGraficoPrevisaoHist() {
       }
     }
   });
+}
+
+// ═══════════════════════════════════════
+//  [PV-B4 Fase 2] TENDÊNCIA E ANOTAÇÕES
+//  - calcularTendenciaModelo: compara previsão atual com a de N semanas
+//    atrás. Janela fixa de 4 semanas (com fallback para o snapshot mais
+//    antigo se não houver 4 ainda).
+//  - getEventosParaSemana: detecta eventos automáticos (provas, testes
+//    LTHR, snapshots manuais) que aconteceram numa semana específica.
+//    Usados para enriquecer tooltips do gráfico.
+// ═══════════════════════════════════════
+
+// Janela de comparação fixa por enquanto. Pode virar configurável depois.
+const TENDENCIA_JANELA_SEMANAS = 4;
+const TENDENCIA_LIMIAR_MIN     = 1; // ±1 min = estagnado
+
+// Compara o valor atual de um modelo com o valor de N semanas atrás.
+// Retorna { dir: 'up'|'down'|'flat'|null, deltaMin, semanaRef } ou null
+// se não houver snapshot de referência.
+//
+// IMPORTANTE: para o modelo, "melhorar" significa TEMPO MENOR. Então:
+//   - tempo caiu (deltaMin < 0) → 'up'   (melhorou) — verde ↗
+//   - tempo subiu (deltaMin > 0) → 'down' (piorou)  — vermelho ↘
+//   - |deltaMin| <= limiar       → 'flat' (estagnado) — cinza →
+function calcularTendenciaModelo(modeloKey, valorAtualMin) {
+  if (!modeloKey || valorAtualMin == null) return null;
+  const hist = getPrevHist();
+  if (hist.length < 1) return null;
+  const semAtual = dataToPlanSemana(dataHoje());
+  if (!semAtual) return null;
+  // Procura snapshot da semana (semAtual - JANELA)
+  const semAlvo = semAtual - TENDENCIA_JANELA_SEMANAS;
+  let ref = hist.find(s => s.semana === semAlvo && s.modelos[modeloKey]);
+  // Fallback: se não há snapshot na semana exata, pega o mais antigo
+  // anterior à semana atual que tenha esse modelo.
+  if (!ref) {
+    const candidatos = hist
+      .filter(s => s.semana < semAtual && s.modelos[modeloKey])
+      .sort((a,b) => a.semana - b.semana); // do mais antigo ao mais recente
+    if (candidatos.length === 0) return null;
+    ref = candidatos[0];
+  }
+  const valorRefMin = ref.modelos[modeloKey].previsao;
+  const deltaMin = valorAtualMin - valorRefMin; // positivo = piorou
+  const abs = Math.abs(deltaMin);
+  let dir;
+  if (abs <= TENDENCIA_LIMIAR_MIN) dir = 'flat';
+  else if (deltaMin < 0)           dir = 'up';
+  else                             dir = 'down';
+  return { dir, deltaMin, semanaRef: ref.semana };
+}
+
+// Formata tendência para HTML inline (ícone + delta + "vs SN").
+function fmtTendencia(t) {
+  if (!t) return '';
+  const cfg = {
+    up:   { ico: '↗', cor: 'var(--green)' },
+    down: { ico: '↘', cor: 'var(--red)'   },
+    flat: { ico: '→', cor: 'var(--muted)' }
+  }[t.dir];
+  const absMin = Math.abs(t.deltaMin);
+  let deltaStr;
+  if (t.dir === 'flat') {
+    deltaStr = 'estagnado';
+  } else {
+    const sinal = t.dir === 'up' ? '−' : '+';
+    if (absMin >= 1) deltaStr = `${sinal}${Math.round(absMin)}min`;
+    else             deltaStr = `${sinal}${Math.round(absMin * 60)}s`;
+  }
+  return `<span style="font-size:10px;color:${cfg.cor};font-weight:700;margin-left:6px;letter-spacing:.3px">
+    ${cfg.ico} ${deltaStr} <span style="color:var(--muted);font-weight:400">vs S${t.semanaRef}</span>
+  </span>`;
+}
+
+// Detecta eventos AUTOMÁTICOS de uma semana específica:
+//   - Provas (treinos com nome ou classificação 'prova')
+//   - Testes LTHR feitos naquela semana
+//   - Snapshots manuais marcados pelo usuário
+// Retorna array de { tipo, label }. Usado em tooltips do gráfico.
+function getEventosParaSemana(sem) {
+  if (sem == null) return [];
+  const eventos = [];
+  // 1. Provas: log de treinos com data dentro da semana
+  const intervalo = getIntervaloSemanaStr(sem);
+  if (intervalo) {
+    // Reconstrói datas YYYY-MM-DD a partir do intervalo
+    try {
+      const ordem = getAncoraDoCiclo(sem).ordemDias;
+      if (ordem && ordem.length) {
+        const dataIni = gerarDataPlano(sem, ordem[0]);
+        const dataFim = gerarDataPlano(sem, ordem[ordem.length - 1]);
+        const provas = getLog().filter(l => {
+          if (!l.data || l.data < dataIni || l.data > dataFim) return false;
+          const txt = (l.treino || '').toLowerCase();
+          return txt.includes('prova') || txt.includes('competição') || txt.includes('race');
+        });
+        provas.forEach(p => eventos.push({
+          tipo: 'prova',
+          label: `🏅 ${p.treino || 'Prova'} · ${p.km}km @ ${paceStr(p.paceSeg)}`
+        }));
+        // 2. Testes LTHR
+        const testes = getLTHR().filter(t => t.data >= dataIni && t.data <= dataFim);
+        testes.forEach(t => eventos.push({
+          tipo: 'lthr',
+          label: `🫀 Teste LTHR: ${t.bpm}bpm @ ${t.pace}/km`
+        }));
+      }
+    } catch(e) {}
+  }
+  // 3. Snapshots manuais da semana
+  const manuais = getPrevHist().filter(s => s.semana === sem && s.trigger === 'manual');
+  manuais.forEach(() => eventos.push({
+    tipo: 'manual',
+    label: '📸 Snapshot manual'
+  }));
+  return eventos;
 }
 
 // ═══════════════════════════════════════
