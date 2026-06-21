@@ -965,6 +965,12 @@ input[type=range].pristine::-webkit-slider-thumb{
     </div>
   </div>
 
+  <!-- [MD] Card do Diagnóstico do Modelo Preditivo: dois lados lado a lado
+       (Bloco atual + Janela rolante) comparando pace executado vs paces
+       projetados pela Modelagem Sub-3 v1.0. Populado por
+       renderDiagnosticoModelo(). -->
+  <div id="mdDiagnostico" style="margin-bottom:14px;display:none"></div>
+
   <!-- Gráficos principais -->
   <div class="two-col">
     <div class="card">
@@ -1587,6 +1593,11 @@ input[type=range].pristine::-webkit-slider-thumb{
     </div>
     <canvas id="cPrevHist" role="img" aria-label="Gráfico de evolução da previsão de tempo da maratona ao longo das semanas do plano"></canvas>
   </div>
+
+  <!-- [MD] Detalhe completo do Modelo Preditivo: tabela mestra de paces por
+       fase + roadmap dos marcadores críticos. Populado por
+       renderDiagnosticoModeloDetalhe(). -->
+  <div id="mdDetalhe" style="display:none"></div>
 
   <div class="stitle">Tabela detalhada</div>
   <div class="card" style="overflow-x:auto">
@@ -4503,6 +4514,11 @@ function renderOverview() {
   } else {
     setHTML('cOvComp','<div class="empty"><div class="empty-icon">💪</div><div class="empty-txt">Registre ao menos 2 medições de corpo para ver</div></div>',true);
   }
+
+  // [MD] Renderizar card de Diagnóstico do Modelo Preditivo (Sistema de
+  // Semáforo). Try/catch para não derrubar a Visão Geral se algum dado
+  // estiver inconsistente.
+  try { renderDiagnosticoModelo(); } catch(e) { console.warn('[MD]', e); }
 }
 
 // ═══════════════════════════════════════
@@ -6880,6 +6896,10 @@ function renderAnalise() {
   // [PV-B4] Renderizar gráfico de evolução das previsões (logo após
   // os 4 gráficos longitudinais existentes).
   try { renderGraficoPrevisaoHist(); } catch(e) { console.warn('[PV-B4 chart]', e); }
+
+  // [MD] Renderizar detalhe completo do Modelo Preditivo (tabela mestra +
+  // marcadores GO/NO-GO).
+  try { renderDiagnosticoModeloDetalhe(); } catch(e) { console.warn('[MD detalhe]', e); }
 }
 
 // ═══════════════════════════════════════
@@ -7378,6 +7398,348 @@ function calcPrevisao() {
   </div>`;
 
   div.innerHTML = html;
+}
+
+// ═══════════════════════════════════════
+//  [MD-1] MODELO PREDITIVO — SISTEMA DE SEMÁFORO
+//  Baseado em "Modelagem Preditiva Longitudinal Sub-3 · v1.0 · 13/05/2026"
+//  produzido pela Equipe Coach Elite. Compara pace executado em zonas-chave
+//  (Z2 baixa e Z4a Tempo Run) com a tabela mestra de paces por fase do
+//  documento, gerando status visual GREEN/YELLOW/ORANGE/RED/BLUE/DIAMOND.
+//
+//  Dois cálculos paralelos:
+//   - "Bloco" — bloco de treinamento em curso (ou último fechado se em
+//     transição). Cada bloco = 4 semanas. Mostra "parcial" enquanto aberto.
+//   - "Janela rolante" — últimas 4 semanas a partir de hoje, independente
+//     da estrutura de blocos.
+//
+//  Detecção automática dos tipos de treino com fallback transparente:
+//   - Z2 baixa: FC média entre 130-138 bpm
+//   - Tempo Run (Z4a): nome contém "tempo"/"limiar"/"z4" OU FC média entre
+//     170-180 bpm, e km >= 4
+// ═══════════════════════════════════════
+
+// Tabela mestra de paces por marco (em segundos/km para cálculo).
+// Fonte: Modelagem Preditiva Sub-3 v1.0 (13/05/2026), pág. 6.
+// Cada marco tem semana inicial estimada do macrociclo (S1 = abril/2026).
+const MD_TABELA_MESTRA = [
+  { id: 'hoje_s7',     nome: 'Hoje (S7)',           sem: 7,
+    pace_prova: 374, z2_baixa: 468, z2_alta: 431, z3: 386, z4a: 359, z4b: 352, z5: 326 },
+  { id: 'fim_fase1',   nome: 'Fim Fase 1 (Jul/26)', sem: 16,
+    pace_prova: 343, z2_baixa: 429, z2_alta: 394, z3: 353, z4a: 329, z4b: 322, z5: 298 },
+  { id: 'meio_fase2',  nome: 'Meio Fase 2 (Set/26)', sem: 24,
+    pace_prova: 312, z2_baixa: 390, z2_alta: 359, z3: 321, z4a: 299, z4b: 293, z5: 271 },
+  { id: 'fim_fase2',   nome: 'Fim Fase 2 (Nov/26)', sem: 32,
+    pace_prova: 295, z2_baixa: 368, z2_alta: 339, z3: 303, z4a: 283, z4b: 277, z5: 256 },
+  { id: 'meio_fase3',  nome: 'Meio Fase 3 (Fev/27)', sem: 44,
+    pace_prova: 271, z2_baixa: 339, z2_alta: 312, z3: 279, z4a: 260, z4b: 255, z5: 236 },
+  { id: 'fim_fase3',   nome: 'Fim Fase 3 (Mai/27)', sem: 56,
+    pace_prova: 256, z2_baixa: 320, z2_alta: 294, z3: 263, z4a: 245, z4b: 240, z5: 222 },
+  { id: 'polimento',   nome: 'Polimento (Jun/27)',  sem: 62,
+    pace_prova: 258, z2_baixa: 323, z2_alta: 297, z3: 266, z4a: 248, z4b: 242, z5: 224 },
+  { id: 'prova',       nome: 'PROVA (Jul/27)',       sem: 64,
+    pace_prova: 255, z2_baixa: null, z2_alta: null, z3: null, z4a: null, z4b: 240, z5: null }
+];
+
+// 5 marcadores críticos quantificados (pág. 9 do documento)
+const MD_MARCADORES_CRITICOS = [
+  { sem: 16, data: 'Jul/2026', titulo: 'Pace Z2 baixa (130-138 bpm)',
+    criterio_sub3: '≤ 7:10/km', criterio_ajustar: '≥ 7:30/km',
+    metrica: 'z2_baixa', alvo_sub3_seg: 430, limite_ajuste_seg: 450 },
+  { sem: 24, data: 'Set/2026', titulo: 'Pace Z2 alta no longão (16km)',
+    criterio_sub3: '≤ 6:00/km', criterio_ajustar: '≥ 6:20/km',
+    metrica: 'z2_alta', alvo_sub3_seg: 360, limite_ajuste_seg: 380 },
+  { sem: 32, data: 'Nov/2026', titulo: 'Tempo Run 8km (Z4a)',
+    criterio_sub3: '≤ 4:45/km', criterio_ajustar: '≥ 5:00/km',
+    metrica: 'z4a', alvo_sub3_seg: 285, limite_ajuste_seg: 300 },
+  { sem: 44, data: 'Fev/2027', titulo: 'Meia maratona oficial',
+    criterio_sub3: '≤ 1:28 (4:10/km)', criterio_ajustar: '≥ 1:32',
+    metrica: 'meia', alvo_sub3_seg: 250, limite_ajuste_seg: 262 },
+  { sem: 52, data: 'Abr/2027', titulo: 'Longão 30km — últimos 12 km',
+    criterio_sub3: '≤ 4:15/km', criterio_ajustar: '≥ 4:25/km',
+    metrica: 'pace_prova', alvo_sub3_seg: 255, limite_ajuste_seg: 265 }
+];
+
+// Classifica desvio em segundos contra a tabela do documento (pág. 8).
+// Retorna { status, label, emoji, cor, acao }.
+function mdClassificarDesvio(deltaSeg) {
+  if (deltaSeg == null) return { status: 'sem_dados', label: 'Sem dados', emoji: '—', cor: 'var(--muted)', acao: 'Sem treinos elegíveis na janela.' };
+  if (deltaSeg <= -20)  return { status: 'adiantado_elite', label: 'Adiantado Elite', emoji: '💎', cor: 'var(--accent)',
+    acao: 'Risco de overreach se sustentado.' };
+  if (deltaSeg <= -10)  return { status: 'adiantado', label: 'Adiantado', emoji: '🔷', cor: 'var(--accent)',
+    acao: 'Confirmar HRV alta + sem fadiga.' };
+  if (deltaSeg <= 5)    return { status: 'no_alvo', label: 'No alvo', emoji: '🟢', cor: 'var(--green)',
+    acao: 'Manter prescrição.' };
+  if (deltaSeg <= 15)   return { status: 'defasado_leve', label: 'Defasado leve', emoji: '🟡', cor: 'var(--yellow)',
+    acao: 'Reavaliar volume; verificar sono/HRV.' };
+  if (deltaSeg <= 30)   return { status: 'defasado_moderado', label: 'Defasado moderado', emoji: '🟠', cor: '#fb923c',
+    acao: 'Recovery week antecipada.' };
+  return { status: 'defasado_critico', label: 'Defasado crítico', emoji: '🔴', cor: 'var(--red)',
+    acao: 'Decisão GO/NO-GO Sub-3; considerar meta 3:05.' };
+}
+
+// Identifica o próximo marco do modelo a partir da semana atual.
+// Retorna o objeto do marco ou null se já passou o último.
+function mdProximoMarco(semAtual) {
+  if (!semAtual) return null;
+  return MD_TABELA_MESTRA.find(m => m.sem > semAtual) || MD_TABELA_MESTRA[MD_TABELA_MESTRA.length - 1];
+}
+
+// Calcula bloco do macrociclo a partir da semana (cada bloco = 4 semanas).
+// Bloco 1 = S1-S4, Bloco 2 = S5-S8, Bloco 3 = S9-S12, Bloco 4 = S13-S16, etc.
+function mdSemanaParaBloco(sem) {
+  if (!sem || sem < 1) return null;
+  const bloco = Math.ceil(sem / 4);
+  const semIni = (bloco - 1) * 4 + 1;
+  const semFim = bloco * 4;
+  return { bloco, semIni, semFim };
+}
+
+// Detecta tipo de treino baseado em FC média e nome.
+// Retorna 'z2_baixa', 'z4a' ou null se não se enquadra.
+function mdDetectarTipo(treino) {
+  const fc = Number(treino.fc) || 0;
+  const km = Number(treino.km) || 0;
+  const nome = String(treino.treino || '').toLowerCase();
+  // Z2 baixa: FC entre 130-138 bpm, km mínimo 3 para ter sinal estável
+  if (fc >= 130 && fc <= 138 && km >= 3) return 'z2_baixa';
+  // Tempo Run (Z4a): nome explícito OU FC 170-180 bpm com km >= 4
+  const nomeZ4a = /tempo|limiar|z4|threshold/.test(nome);
+  if ((nomeZ4a || (fc >= 170 && fc <= 180)) && km >= 4) return 'z4a';
+  return null;
+}
+
+// Calcula pace médio dos treinos elegíveis numa janela de semanas.
+// Retorna { z2_baixa: {pace, n}, z4a: {pace, n} } com n = quantidade.
+function mdCalcPaceJanela(semIni, semFim) {
+  const log = getLog().filter(r => {
+    const sem = Number(r.semana);
+    return sem >= semIni && sem <= semFim && r.paceSeg > 0 && r.fc;
+  });
+  const buckets = { z2_baixa: [], z4a: [] };
+  log.forEach(r => {
+    const tipo = mdDetectarTipo(r);
+    if (tipo) buckets[tipo].push(Number(r.paceSeg));
+  });
+  const calcMedia = arr => {
+    if (arr.length === 0) return null;
+    // Média ponderada simples (sem pesos por km — manter robusto)
+    return Math.round(arr.reduce((a, v) => a + v, 0) / arr.length);
+  };
+  return {
+    z2_baixa: { pace: calcMedia(buckets.z2_baixa), n: buckets.z2_baixa.length },
+    z4a:      { pace: calcMedia(buckets.z4a),      n: buckets.z4a.length }
+  };
+}
+
+// Calcula diagnóstico de um conjunto de paces vs próximo marco.
+// Retorna { z2_baixa: {pace, paceAlvo, delta, classif, n}, z4a: {idem} }.
+function mdDiagnosticar(paces, semAtual) {
+  const marco = mdProximoMarco(semAtual);
+  if (!marco) return null;
+  const diag = {};
+  ['z2_baixa', 'z4a'].forEach(k => {
+    const pace = paces[k].pace;
+    const alvo = marco[k];
+    const delta = (pace != null && alvo != null) ? (pace - alvo) : null;
+    diag[k] = {
+      pace, paceAlvo: alvo, delta, n: paces[k].n,
+      classif: mdClassificarDesvio(delta)
+    };
+  });
+  diag.marco = marco;
+  return diag;
+}
+
+// Helper para formatar pace em mm:ss
+function mdFmtPace(seg) {
+  if (seg == null) return '—';
+  const m = Math.floor(seg / 60);
+  const s = seg % 60;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+// Helper para formatar delta em segundos com sinal
+function mdFmtDelta(d) {
+  if (d == null) return '—';
+  if (Math.abs(d) < 1) return '0s';
+  const sinal = d > 0 ? '+' : '';
+  return `${sinal}${Math.round(d)}s`;
+}
+
+// Render do mini-card de um lado (Bloco ou Janela rolante).
+// Compacto, usado tanto na Visão Geral quanto no detalhe.
+function mdRenderLado(titulo, diag, badgeExtra) {
+  if (!diag) {
+    return `<div style="flex:1;min-width:0;padding:10px;background:var(--panel);border:1px solid var(--b1);border-radius:6px">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">${titulo}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">Sem dados suficientes.</div>
+    </div>`;
+  }
+  const linhaSemaforo = (key, label) => {
+    const d = diag[key];
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--b1)">
+        <div style="font-size:11px;color:var(--muted)">${label}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${d.pace != null
+            ? `<span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text)">${mdFmtPace(d.pace)}/km</span>
+               <span style="font-size:10px;color:var(--muted)">(${mdFmtDelta(d.delta)})</span>`
+            : `<span style="font-size:10px;color:var(--muted)">—</span>`}
+          <span style="font-size:14px" title="${d.classif.label}">${d.classif.emoji}</span>
+        </div>
+      </div>`;
+  };
+  return `<div style="flex:1;min-width:0;padding:10px;background:var(--panel);border:1px solid var(--b1);border-radius:6px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px">${titulo}</div>
+      ${badgeExtra || ''}
+    </div>
+    ${linhaSemaforo('z2_baixa', 'Z2 baixa')}
+    ${linhaSemaforo('z4a',       'Tempo Run (Z4a)')}
+    <div style="font-size:9px;color:var(--muted);margin-top:6px">
+      Alvo: ${diag.marco.nome}
+    </div>
+  </div>`;
+}
+
+// Render do card de Diagnóstico do Modelo na Visão Geral.
+// Dois lados lado a lado: Bloco atual + Janela rolante.
+function renderDiagnosticoModelo() {
+  const wrap = document.getElementById('mdDiagnostico');
+  if (!wrap) return;
+  const semAtual = dataToPlanSemana(dataHoje());
+  if (!semAtual) {
+    wrap.innerHTML = '';
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+
+  // --- Lado 1: Bloco em curso ou último fechado ---
+  const blocoInfo = mdSemanaParaBloco(semAtual);
+  const pacesBloco = mdCalcPaceJanela(blocoInfo.semIni, blocoInfo.semFim);
+  const diagBloco  = mdDiagnosticar(pacesBloco, semAtual);
+  const ehParcial  = semAtual < blocoInfo.semFim;
+  const badgeBloco = ehParcial
+    ? `<span style="font-size:8px;background:var(--accent);color:#000;padding:1px 5px;border-radius:2px;letter-spacing:.5px;font-weight:700">PARCIAL</span>`
+    : `<span style="font-size:8px;background:rgba(34,197,94,.15);color:var(--green);padding:1px 5px;border-radius:2px;letter-spacing:.5px;font-weight:700">FECHADO</span>`;
+  const tituloBloco = `Bloco ${blocoInfo.bloco} (S${blocoInfo.semIni}–S${blocoInfo.semFim})`;
+
+  // --- Lado 2: Janela rolante (últimas 4 semanas) ---
+  const semIniJanela = Math.max(1, semAtual - 3);
+  const pacesJanela  = mdCalcPaceJanela(semIniJanela, semAtual);
+  const diagJanela   = mdDiagnosticar(pacesJanela, semAtual);
+  const tituloJanela = `Janela rolante (S${semIniJanela}–S${semAtual})`;
+
+  wrap.innerHTML = `
+    <div class="card">
+      <div class="card-title">
+        Diagnóstico do modelo preditivo
+        <span>vs Modelagem Sub-3 v1.0 · próximo marco: ${diagBloco ? diagBloco.marco.nome : '—'}</span>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${mdRenderLado(tituloBloco, diagBloco, badgeBloco)}
+        ${mdRenderLado(tituloJanela, diagJanela, '')}
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-top:8px;font-style:italic">
+        🟢 no alvo (±5s) · 🟡 −15s · 🟠 −30s · 🔴 +30s · 🔷 adiantado · 💎 adiantado elite
+      </div>
+    </div>`;
+}
+
+// Render do detalhe expandido na aba Evolução: tabela mestra completa +
+// roadmap dos marcadores críticos + diagnóstico atual em destaque.
+function renderDiagnosticoModeloDetalhe() {
+  const wrap = document.getElementById('mdDetalhe');
+  if (!wrap) return;
+  const semAtual = dataToPlanSemana(dataHoje());
+  if (!semAtual) { wrap.innerHTML = ''; wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+
+  // ── Tabela mestra completa ──
+  const linhas = MD_TABELA_MESTRA.map(m => {
+    const ehAtual = m === mdProximoMarco(semAtual);
+    const ehPassado = m.sem <= semAtual;
+    const cor = ehAtual ? 'var(--accent)' : ehPassado ? 'var(--muted)' : 'var(--text)';
+    const peso = ehAtual ? '700' : '500';
+    return `<tr style="color:${cor};font-weight:${peso}">
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1)">${m.nome}${ehAtual ? ' ◄' : ''}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.pace_prova)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z2_baixa)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z2_alta)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z3)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z4a)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z4b)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z5)}</td>
+    </tr>`;
+  }).join('');
+
+  // ── Roadmap dos marcadores críticos ──
+  const linhasMarcadores = MD_MARCADORES_CRITICOS.map(m => {
+    const ehFuturo = m.sem > semAtual;
+    const semsRest = m.sem - semAtual;
+    const cor = ehFuturo ? 'var(--text)' : 'var(--muted)';
+    const statusTempo = ehFuturo
+      ? `<span style="color:var(--accent);font-size:10px">em ${semsRest} sem</span>`
+      : `<span style="color:var(--muted);font-size:10px">passou</span>`;
+    return `<tr style="color:${cor}">
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);font-weight:600">S${m.sem} · ${m.data}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1)">${m.titulo}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--green)">${m.criterio_sub3}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--red)">${m.criterio_ajustar}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:right">${statusTempo}</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="card" style="margin-top:6px">
+      <div class="card-title">
+        Modelo Preditivo Sub-3 — Tabela Mestra
+        <span>Modelagem v1.0 · 13/05/2026 · Equipe Coach Elite</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="border-bottom:2px solid var(--b2);color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px">
+              <th style="text-align:left;padding:6px 8px">Marco</th>
+              <th style="padding:6px 8px">Prova</th>
+              <th style="padding:6px 8px">Z1 Regen.</th>
+              <th style="padding:6px 8px">Z2 baixa</th>
+              <th style="padding:6px 8px">Z3 Mod.</th>
+              <th style="padding:6px 8px">Z4a Tempo</th>
+              <th style="padding:6px 8px">Z4b LT</th>
+              <th style="padding:6px 8px">Z5 VO₂</th>
+            </tr>
+          </thead>
+          <tbody>${linhas}</tbody>
+        </table>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;font-style:italic">
+        Todos os paces em min:seg/km — faixa de referência ±5s. ◄ = próximo marco (alvo atual).
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:6px">
+      <div class="card-title">
+        Marcadores Críticos GO/NO-GO
+        <span>checkpoints quantificados ao longo do macrociclo</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="border-bottom:2px solid var(--b2);color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px">
+              <th style="text-align:left;padding:6px 8px">Quando</th>
+              <th style="text-align:left;padding:6px 8px">Marcador</th>
+              <th style="padding:6px 8px">Sub-3 ✓</th>
+              <th style="padding:6px 8px">Ajustar meta</th>
+              <th style="padding:6px 8px"></th>
+            </tr>
+          </thead>
+          <tbody>${linhasMarcadores}</tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 // ═══════════════════════════════════════
