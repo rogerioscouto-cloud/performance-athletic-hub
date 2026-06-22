@@ -10112,6 +10112,21 @@ async function carregarDadosNuvem() {
   }
 
   mostrarSyncIndicator(false);
+  // [fix-sem13] Repopular selects de semana após sync. Sem isso, se o plano
+  // novo (ex: Bloco 4 S13-S16) chegou pelo Firebase DEPOIS do boot, os selects
+  // dos formulários (Prontidão, Corrida, Força, Corpo) continuam limitados às
+  // semanas que existiam no localStorage no momento do boot. Resultado: ao
+  // registrar uma medição em data de S13+, o sincronizarData tentava setar
+  // S13 num select que só ia até S12 e silenciosamente caía na última opção
+  // disponível, gravando a medição na semana errada.
+  popularSelectsSemana();
+  // Ressincronizar a data atual nos formulários para que a semana certa seja
+  // selecionada agora que os selects têm as opções completas.
+  const hojeRef = dataHoje();
+  ['p','l','f','c'].forEach(pfx => {
+    const el = document.getElementById(pfx+'-data');
+    if (el && el.value === hojeRef) sincronizarData(pfx);
+  });
   atualizarKPIs();
   renderOverview();
   renderTop10();
