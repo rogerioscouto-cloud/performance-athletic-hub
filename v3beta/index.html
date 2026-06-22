@@ -7495,17 +7495,51 @@ function mdSemanaParaBloco(sem) {
   return { bloco, semIni, semFim };
 }
 
-// Detecta tipo de treino baseado em FC média e nome.
+// Detecta tipo de treino baseado primariamente no NOME (objetivo declarado
+// pelo atleta) e em FC como sanidade. Antes o filtro era só FC entre 130-138,
+// o que pegava treinos regenerativos (FC máx ~135) indistintamente — Rogério
+// confirmou em 21/06/2026 que SEMPRE nomeia explicitamente o objetivo quando
+// é Z2 baixa.
 // Retorna 'z2_baixa', 'z4a' ou null se não se enquadra.
 function mdDetectarTipo(treino) {
   const fc = Number(treino.fc) || 0;
   const km = Number(treino.km) || 0;
-  const nome = String(treino.treino || '').toLowerCase();
-  // Z2 baixa: FC entre 130-138 bpm, km mínimo 3 para ter sinal estável
-  if (fc >= 130 && fc <= 138 && km >= 3) return 'z2_baixa';
-  // Tempo Run (Z4a): nome explícito OU FC 170-180 bpm com km >= 4
-  const nomeZ4a = /tempo|limiar|z4|threshold/.test(nome);
-  if ((nomeZ4a || (fc >= 170 && fc <= 180)) && km >= 4) return 'z4a';
+  const nome = String(treino.treino || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // ── REJEIÇÕES EXPLÍCITAS (têm prioridade absoluta) ──
+  // Treinos regenerativos / Z1 / recovery cabem na faixa de FC da Z2 baixa
+  // (FC máx ~135) mas NÃO devem ser contados como Z2 baixa. Pace alvo é outro.
+  const ehRegenerativo = /regenera|z1|recovery|leve|reset/.test(nome);
+  if (ehRegenerativo) return null;
+
+  // ── Z2 BAIXA: nome explícito é o critério primário ──
+  // Variações que Rogério costuma usar: "z2 baixa", "Z2-baixa", "z2b", etc.
+  const nomeZ2baixa = /z2\s*baixa|z2-baixa|z2b\b|base aerobic|aerobic base/.test(nome);
+  if (nomeZ2baixa && km >= 3) {
+    // Sanidade: se FC declarada estiver totalmente fora da faixa Z2 baixa
+    // (ex: alguém escreveu "z2 baixa" mas correu em 160 bpm), descarta.
+    if (fc > 0 && (fc < 120 || fc > 150)) return null;
+    return 'z2_baixa';
+  }
+  // Fallback APENAS se não houver nome de objetivo conflitante:
+  // FC entre 130-138 e nome não sugere outro tipo de treino.
+  const temObjetivoOutro = /tempo|limiar|interv|tiros|fartlek|long|tempo run|z3|z4|z5|forte|prog/.test(nome);
+  if (!temObjetivoOutro && fc >= 130 && fc <= 138 && km >= 5) {
+    return 'z2_baixa';
+  }
+
+  // ── TEMPO RUN (Z4a): nome explícito ou FC característica ──
+  const nomeZ4a = /tempo\s*run|z4|limiar|threshold/.test(nome);
+  if (nomeZ4a && km >= 4) {
+    if (fc > 0 && (fc < 160 || fc > 185)) return null; // sanidade
+    return 'z4a';
+  }
+  // Fallback FC: 170-180 bpm sustentados, com nome não conflitante
+  const temObjetivoOutroZ4 = /regenera|z1|z2|base|easy|leve|interv|tiros|vo2|z5/.test(nome);
+  if (!temObjetivoOutroZ4 && fc >= 170 && fc <= 180 && km >= 4) {
+    return 'z4a';
+  }
+
   return null;
 }
 
