@@ -540,8 +540,8 @@ input[type=range].pristine::-webkit-slider-thumb{
 }
 
 /* ══ PRONTIDÃO GRID (visual) ══ */
-.pont-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:14px}
-@media(max-width:500px){.pont-grid{grid-template-columns:repeat(4,1fr)}}
+.pont-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media(max-width:500px){.pont-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 .pont-card{
   border-radius:6px;padding:10px 6px;text-align:center;border:1px solid var(--b1);
 }
@@ -1417,10 +1417,10 @@ input[type=range].pristine::-webkit-slider-thumb{
       <!-- [CO-1] Padronização do formulário Corpo no padrão expansível das
            outras abas (Prontidão, Corrida, Força). Antes era sempre aberto
            e destoava da consistência arquitetural. -->
-      <button onclick="toggleForm('corpoForm',this)" class="form-toggle-btn">➕ Registrar medição</button>
+      <button onclick="toggleForm('corpoForm',this);resetCorpoModo()" class="form-toggle-btn">➕ Registrar medição</button>
       <div id="corpoForm" style="display:none">
       <div class="card">
-        <div class="card-title">Composição corporal <span>balança de bioimpedância · semanal</span></div>
+        <div class="card-title">Composição corporal <span>bioimpedância · <span id="corpoModo" style="color:var(--accent)">nova medição</span></span></div>
         <div class="form-grid">
           <div class="fgroup"><label>Data da medição</label><input type="date" id="c-data" oninput="sincronizarData('c')"></div>
           <div class="fgroup"><label>Semana do plano</label>
@@ -1628,13 +1628,13 @@ input[type=range].pristine::-webkit-slider-thumb{
       <div class="card">
         <div class="card-title">Modelo de Riegel <span>T₂ = T₁ × (D₂/D₁)¹˙⁰⁶</span></div>
         <div class="form-grid full">
-          <div class="fgroup"><label>5 km (min)</label><input type="number" id="p5k" placeholder="22.5" min="10" max="60" step="0.1" oninput="calcPrevisao()"></div>
+          <div class="fgroup"><label>5 km (mm:ss)</label><input type="text" inputmode="numeric" id="p5k" placeholder="22:30" oninput="fmtCorridaInput(this);calcPrevisao()"></div>
         </div>
         <div class="form-grid full">
-          <div class="fgroup"><label>10 km (min)</label><input type="number" id="p10k" placeholder="47.5" min="20" max="90" step="0.1" oninput="calcPrevisao()"></div>
+          <div class="fgroup"><label>10 km (mm:ss)</label><input type="text" inputmode="numeric" id="p10k" placeholder="47:30" oninput="fmtCorridaInput(this);calcPrevisao()"></div>
         </div>
         <div class="form-grid full">
-          <div class="fgroup"><label>Meia maratona (min)</label><input type="number" id="p21k" placeholder="102" min="50" max="180" step="0.5" oninput="calcPrevisao()"></div>
+          <div class="fgroup"><label>Meia maratona (h:mm:ss)</label><input type="text" inputmode="numeric" id="p21k" placeholder="1:42:00" oninput="fmtCorridaInput(this);calcPrevisao()"></div>
         </div>
         <div style="padding:12px;background:var(--bg);border-radius:4px;border:1px solid var(--b1);margin-top:4px">
           <div style="font-size:9px;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;margin-bottom:6px">Sobre o modelo</div>
@@ -1934,8 +1934,10 @@ input[type=range].pristine::-webkit-slider-thumb{
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;color:var(--yellow)" id="exp-corpo-count">—</div>
           </div>
         </div>
-        <button class="btn btn-primary btn-full" onclick="exportarCSV()" style="margin-bottom:6px">⬇ Exportar relatório (.csv)</button>
-        <button class="btn btn-ghost btn-full" onclick="exportarBackup()" style="margin-bottom:6px">⬇ Exportar backup completo (.json)</button>
+        <button class="btn btn-primary btn-full" onclick="exportarCSV()" style="margin-bottom:2px">⬇ Exportar relatório (.csv)</button>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.4">Tabela para análise externa (Excel, planilhas). <strong style="color:var(--text)">Não</strong> restaura o app.</div>
+        <button class="btn btn-ghost btn-full" onclick="exportarBackup()" style="margin-bottom:2px">⬇ Exportar backup completo (.json)</button>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.4">Backup completo para <strong style="color:var(--text)">restaurar</strong> o painel (outro dispositivo ou após reset).</div>
         <div style="border-top:1px solid var(--b1);margin-top:10px;padding-top:12px">
           <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6">
             <strong style="color:var(--yellow)">⚠ Atenção:</strong> a importação
@@ -1981,9 +1983,10 @@ input[type=range].pristine::-webkit-slider-thumb{
           Use se notar cascatas "presas" ou reagendamentos antigos poluindo a agenda.
         </div>
         <button class="btn btn-ghost btn-full" onclick="abrirRevisaoReagend()" style="margin-bottom:6px">🗂 Revisar reagendamentos</button>
-        <button class="btn btn-ghost btn-full" onclick="limparReagendObsoletos()" style="margin-bottom:6px">🧹 Limpar obsoletos automaticamente</button>
+        <button class="btn btn-ghost btn-full" onclick="limparReagendObsoletos()" style="margin-bottom:2px">🧹 Limpar obsoletos automaticamente</button>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.4">Remove só os reagendamentos que já não batem com o plano atual. Seguro — preserva os válidos.</div>
         <button class="btn btn-ghost btn-full" onclick="recalcularCascata()" style="margin-bottom:6px">🔁 Recalcular cascata atual</button>
-        <button class="btn btn-ghost btn-full" onclick="mostrarDiagLS()" style="margin-bottom:6px">🔍 Diagnóstico de dados (LS)</button>
+        <button class="btn btn-ghost btn-full" onclick="mostrarDiagLS()" style="margin-bottom:6px">🔍 Verificar integridade dos dados</button>
         <div id="diagLS" style="display:none;margin-top:10px;font-size:10px;font-family:monospace;color:var(--muted);background:var(--bg);padding:10px;border-radius:4px;word-break:break-all;max-height:300px;overflow-y:auto"></div>
       </div>
 
@@ -1994,8 +1997,14 @@ input[type=range].pristine::-webkit-slider-thumb{
           Ações <strong style="color:var(--text)">irreversíveis</strong>. Faça um backup JSON antes (Bloco 2)
           para poder restaurar caso se arrependa. Cada ação pede confirmação antes de executar.
         </div>
-        <button class="btn btn-danger btn-full" onclick="limparReagend()" style="margin-bottom:6px;font-size:10px">🗑 Apagar TODOS os reagendamentos</button>
+        <button class="btn btn-danger btn-full" onclick="limparReagend()" style="margin-bottom:2px;font-size:10px">🗑 Apagar TODOS os reagendamentos</button>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.4">Remove <strong style="color:var(--text)">todos</strong> os reagendamentos, inclusive os válidos. Use só se a agenda estiver inconsistente.</div>
         <button class="btn btn-danger btn-full" onclick="confirmarReset()">⚠ Apagar todos os dados</button>
+      </div>
+
+      <!-- [CF-11] Versão do app -->
+      <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:18px;padding-top:12px;border-top:1px solid var(--b1)">
+        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda</strong> · 07/07/2026
       </div>
     </div>
 
@@ -2187,6 +2196,26 @@ function registrarBlocoNovo(semsBloco, ancora, opts = {}) {
 // Retorna a âncora (data, dia, ordem) que rege as semanas pertencentes a um ciclo.
 // Para ciclo 1 ou ciclos sem âncora persistida, retorna fallback hardcoded
 // compatível com PLANO_BASE original (ânchor 31/03 Ter, ordem Ter→Seg).
+// [FIX-SemanaSegunda] Normaliza o esquema legado (semana Ter→Seg, segunda no
+// FIM, ancorada em terça) para Seg→Dom (segunda no início). Prova de segurança:
+// as datas de Ter a Dom são invariantes; só a segunda migra do fim para o
+// início da semana. Qualquer outro esquema (já em Seg, ou custom) é preservado.
+function _ancoraParaSegunda(anc){
+  const LEGADO = ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg'];
+  if (anc && anc.ancoraDia === 'Ter' && Array.isArray(anc.ordemDias) &&
+      anc.ordemDias.length === 7 && anc.ordemDias.every((d,i) => d === LEGADO[i])) {
+    const seg = new Date(anc.ancoraData + 'T12:00:00');
+    seg.setDate(seg.getDate() - 1); // terça → segunda anterior (mesmo nº de semana)
+    return {
+      ancoraSem:  anc.ancoraSem,
+      ancoraDia:  'Seg',
+      ancoraData: seg.toISOString().slice(0, 10),
+      ordemDias:  ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom']
+    };
+  }
+  return anc;
+}
+
 function getAncoraDoCiclo(semana) {
   // [Sub-fase 3.3] Busca âncora POR SEMANA, não por ciclo.
   // Cada entrada do histórico cobre um conjunto de semanas (semsSubstituidas)
@@ -2201,20 +2230,23 @@ function getAncoraDoCiclo(semana) {
     if (Array.isArray(entry.semsSubstituidas) &&
         entry.semsSubstituidas.includes(semNum) &&
         entry.ancoraData && entry.ancoraDia && entry.ancoraSem && entry.ordemDias) {
-      return {
+      return _ancoraParaSegunda({
         ancoraSem:  entry.ancoraSem,
         ancoraDia:  entry.ancoraDia,
         ancoraData: entry.ancoraData,
         ordemDias:  entry.ordemDias
-      };
+      });
     }
   }
-  // Fallback: ciclo 1 / semanas sem âncora persistida (PLANO_BASE original)
+  // Fallback: ciclo 1 / semanas sem âncora persistida.
+  // [FIX-SemanaSegunda] Re-ancorado para SEGUNDA (30/03) — a semana começa na
+  // segunda (Seg→Dom). Datas de Ter–Dom idênticas ao esquema legado; só a
+  // segunda deixa de ser o último dia e passa a ser o primeiro.
   return {
     ancoraSem:  1,
-    ancoraDia:  'Ter',
-    ancoraData: '2026-03-31',
-    ordemDias:  ['Ter','Qua','Qui','Sex','Sáb','Dom','Seg']
+    ancoraDia:  'Seg',
+    ancoraData: '2026-03-30',
+    ordemDias:  ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom']
   };
 }
 const salvarCfg_ = (v) => lsSave(LS.CFG, v);
@@ -3671,6 +3703,10 @@ function editarCorpo(data) {
   document.getElementById('c-meta').value      = r.meta     || '';
   document.getElementById('c-obs').value       = r.obs      || '';
   sincronizarData('c');
+
+  // [CO-4] Indicar modo de edição no título do formulário.
+  const _cm = document.getElementById('corpoModo');
+  if (_cm) { _cm.textContent = 'editando ' + fmtData(r.data); _cm.style.color = 'var(--yellow)'; }
 
   document.getElementById('c-data').scrollIntoView({ behavior:'smooth', block:'center' });
   document.getElementById('c-peso').focus();
@@ -5541,7 +5577,7 @@ function renderPlanoTab() {
       <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;color:var(--text)">
         Semana ${planSemSel}
         ${planSemSel===semAtual?'<span style="font-size:11px;color:var(--accent);margin-left:8px">● atual</span>':''}
-        ${!isBaseWeek?'<span style="font-size:11px;color:var(--orange);margin-left:8px">+ extra</span>':''}
+        ${!isBaseWeek?'<span title="Semana fora do plano-base do macrociclo (adicionada via upload do treinador) — treinos voluntários" style="font-size:11px;color:var(--orange);margin-left:8px">semana extra</span>':''}
       </div>
       <div style="display:flex;gap:14px">
         <div style="text-align:right">
@@ -5556,7 +5592,7 @@ function renderPlanoTab() {
     </div>`;
 
   // ── Grade calendário 7 colunas ───────────────────────────
-  html += `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px">`;
+  html += `<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:8px">`;
 
   // [Port-Calendario] Cabeçalho dos dias — ordem vem da âncora do ciclo (Seg-primeiro vs Ter-primeiro)
   const DIAS_LABEL = getAncoraDoCiclo(planSemSel).ordemDias;
@@ -6336,6 +6372,7 @@ function salvarCorpo() {
   // Limpar
   ['c-peso','c-imc','c-gord-pct','c-gord-visc','c-musc-pct','c-meta','c-obs']
     .forEach(id => document.getElementById(id).value = '');
+  resetCorpoModo(); // [CO-4]
 }
 
 function renderCorpoTab() {
@@ -7180,9 +7217,10 @@ function calcPrevisao() {
   if (!div) return;
 
   // ── Entradas manuais (provas preparatórias) ──────────────
-  const v5  = parseFloat(document.getElementById('p5k')?.value);
-  const v10 = parseFloat(document.getElementById('p10k')?.value);
-  const v21 = parseFloat(document.getElementById('p21k')?.value);
+  // [PV-3] Inputs agora em mm:ss / h:mm:ss → converter para minutos.
+  const v5  = tempoParaSeg(document.getElementById('p5k')?.value)  / 60;
+  const v10 = tempoParaSeg(document.getElementById('p10k')?.value) / 60;
+  const v21 = tempoParaSeg(document.getElementById('p21k')?.value) / 60;
 
   const res = [];
 
@@ -7209,6 +7247,7 @@ function calcPrevisao() {
     const label = melhor.km >= 15 ? `Longão ${melhor.km}km` : `Treino ${melhor.km}km`;
     res.push({
       f: `${label} (${fmtData(melhor.data)})`,
+      dataRef: melhor.data,
       p: prev, tipo:'treino', modeloKey: 'longao',
       confianca: melhor.km >= 15 ? 'boa' : melhor.km >= 10 ? 'moderada' : 'baixa — poucos km',
       detalhe: `Pace: ${paceStr(melhor.paceSeg)} · ${melhor.km}km · FC: ${melhor.fc||'—'} bpm`
@@ -7257,6 +7296,7 @@ function calcPrevisao() {
     const prevMin  = 42.195 / velKmMin;
     res.push({
       f: `VO₂máx ${vo2} ml/kg/min (${fmtData(regVo2.data)})`,
+      dataRef: regVo2.data,
       p: prevMin, tipo:'vo2', modeloKey: 'vo2max', confianca:'estimativa',
       detalhe: `Pace estimado: ${paceStr(Math.round((prevMin*60)/42.195))}`
     });
@@ -7305,6 +7345,7 @@ function calcPrevisao() {
         const prevDaniels = (paceMaratonaSeg * 42.195) / 60;
         res.push({
           f: `LTHR ${ultimo.bpm}bpm · pace limiar ${ultimo.pace}/km (${fmtData(ultimo.data)})`,
+          dataRef: ultimo.data,
           p: prevDaniels,
           tipo: 'lthr', modeloKey: 'lthr',
           confianca: 'boa',
@@ -7323,6 +7364,7 @@ function calcPrevisao() {
         const prevMin = 42.195 / (29.54 + 5.000663 * vdot - 0.007546 * vdot * vdot) * 1000 / 60;
         res.push({
           f: `LTHR ${ultimo.bpm}bpm (estimativa via FC) (${fmtData(ultimo.data)})`,
+          dataRef: ultimo.data,
           p: prevMin,
           tipo: 'lthr', modeloKey: 'lthr',
           confianca: 'estimativa',
@@ -7342,6 +7384,15 @@ function calcPrevisao() {
     // de 4 semanas atrás (fallback para o mais antigo se < 4 disponíveis).
     const tend = r.modeloKey ? calcularTendenciaModelo(r.modeloKey, r.p) : null;
     const tendHtml = tend ? fmtTendencia(tend) : '';
+    // [PV-5] Confiança padronizada (Alta/Média/Baixa) — só exibição.
+    const ci = confiancaInfo(r.confianca);
+    // [PV-7] Idade do dado-fonte + nudge de re-teste para LTHR antigo.
+    const idade = r.dataRef ? idadeEmSemanas(r.dataRef) : null;
+    const idadeTxt = idade == null ? '' : (idade === 0 ? 'desta semana' : `há ${idade} sem`);
+    const refazer = (r.tipo === 'lthr' && idade != null && idade >= 6)
+      ? ' · <span style="color:var(--orange);font-weight:700">considere refazer</span>' : '';
+    const idadeHtml = r.dataRef
+      ? `<div style="font-size:9px;color:var(--muted);margin-top:3px">📅 dado ${idadeTxt}${refazer}</div>` : '';
     return `
       <div style="background:var(--card);border:1px solid var(--b1);border-radius:6px;padding:12px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -7352,16 +7403,12 @@ function calcPrevisao() {
               ${tendHtml}
             </div>
             ${r.detalhe ? `<div style="font-size:10px;color:var(--muted);margin-top:4px">${r.detalhe}</div>` : ''}
+            ${idadeHtml}
           </div>
           <span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:${bgBadge};color:${cor};white-space:nowrap;margin-left:8px">${badge}</span>
         </div>
         <div style="font-size:9px;color:var(--muted);margin-top:6px">
-          Confiança: <span style="font-weight:700;padding:1px 6px;border-radius:2px;letter-spacing:.5px;
-            ${r.confianca === 'boa'
-              ? 'background:rgba(34,197,94,.15);color:var(--green)'
-              : r.confianca === 'prova'
-                ? 'background:rgba(0,212,255,.15);color:var(--accent)'
-                : 'background:rgba(245,158,11,.12);color:var(--yellow)'}">${r.confianca}</span>
+          Confiança: <span title="${r.confianca}" style="font-weight:700;padding:1px 6px;border-radius:2px;letter-spacing:.5px;background:${ci.bg};color:${ci.cor}">${ci.label}</span>
         </div>
       </div>`;
   };
@@ -9391,6 +9438,50 @@ function segParaTempo(s) {
   return `${m}:${String(sec).padStart(2,'0')}`;
 }
 
+// ─── [LOTE 8] Helpers ────────────────────────────────────
+// [PV-3] Formata input de tempo de prova enquanto digita.
+//   ≤2 díg → seg/min cru · 3-4 díg → mm:ss · 5-6 díg → h:mm:ss
+//   Ex.: "2230"→"22:30" · "4730"→"47:30" · "14200"→"1:42:00"
+function fmtCorridaInput(el){
+  let v = el.value.replace(/[^\d]/g,'').slice(0,6);
+  if (v.length <= 2)      el.value = v;
+  else if (v.length <= 4) el.value = v.slice(0,v.length-2)+':'+v.slice(-2);
+  else                    el.value = v.slice(0,v.length-4)+':'+v.slice(-4,-2)+':'+v.slice(-2);
+}
+
+// [PV-7] Idade de um dado (em semanas) a partir de data ISO "YYYY-MM-DD".
+function idadeEmSemanas(dataISO){
+  if (!dataISO) return null;
+  const d = new Date(dataISO.length <= 10 ? dataISO+'T00:00:00' : dataISO);
+  if (isNaN(d)) return null;
+  const dias = Math.floor((Date.now() - d.getTime()) / 86400000);
+  return Math.max(0, Math.round(dias / 7));
+}
+
+// [PV-5] Mapeia o vocabulário interno de confiança → escala padronizada
+//   Alta / Média / Baixa (só exibição — NÃO altera os valores internos
+//   usados pela seleção da Melhor Estimativa em 'boas').
+function confiancaInfo(c){
+  switch(c){
+    case 'muito alta':
+    case 'alta':
+    case 'prova':
+      return {label:'Alta',  cor:'var(--green)',  bg:'rgba(34,197,94,.15)'};
+    case 'boa':
+    case 'média':
+    case 'moderada':
+      return {label:'Média', cor:'var(--yellow)', bg:'rgba(245,158,11,.15)'};
+    default: // 'estimativa', 'baixa — poucos km', etc.
+      return {label:'Baixa', cor:'var(--muted)',  bg:'rgba(148,163,184,.12)'};
+  }
+}
+
+// [CO-4] Volta o título do formulário de Corpo para "nova medição".
+function resetCorpoModo(){
+  const t = document.getElementById('corpoModo');
+  if (t) { t.textContent = 'nova medição'; t.style.color = 'var(--accent)'; }
+}
+
 // Converte string "m:ss" → segundos por km
 function paceParaSeg(str) {
   if (!str) return 0;
@@ -9495,7 +9586,7 @@ function validarDataRegistro(dataStr, contexto = 'registro') {
   }
   return true;
 }
-const PLANO_INICIO = '2026-03-31'; // Terça-feira — Dia 1 da Semana 1 (descanso)
+const PLANO_INICIO = '2026-03-30'; // [FIX-SemanaSegunda] Segunda — início da S1 (era 31/03 Ter)
 
 function dataToDia(dataStr) {
   if (!dataStr) return '';
