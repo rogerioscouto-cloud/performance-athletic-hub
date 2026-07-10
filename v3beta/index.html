@@ -230,6 +230,10 @@ body{
   .two-col .form-col{order:2}
   .two-col .data-col{order:1}
 }
+/* [FIX-overflow] Itens de grid têm min-width:auto por padrão, o que impede
+   filhos largos (grade de 7 dias, linhas longas) de encolher e faz a página
+   estourar a largura no mobile (iOS Safari). min-width:0 libera o encolhimento. */
+.two-col>*,.three-col>*{min-width:0}
 
 /* ══ FORM ══ */
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
@@ -1398,7 +1402,7 @@ input[type=range].pristine::-webkit-slider-thumb{
     <div class="data-col">
       <div class="stitle">Plano de treinos <span id="plan-total-label"></span></div>
       <div class="wchips" id="planChips"></div>
-      <div id="planSemGrid" style="display:grid;gap:6px;transition:opacity .2s ease"></div>
+      <div id="planSemGrid" style="display:block;min-width:0;max-width:100%;transition:opacity .2s ease"></div>
     </div>
 
   </div>
@@ -2004,7 +2008,7 @@ input[type=range].pristine::-webkit-slider-thumb{
 
       <!-- [CF-11] Versão do app -->
       <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:18px;padding-top:12px;border-top:1px solid var(--b1)">
-        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda</strong> · 07/07/2026
+        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda + overflow mobile</strong> · 09/07/2026
       </div>
     </div>
 
@@ -5592,7 +5596,7 @@ function renderPlanoTab() {
     </div>`;
 
   // ── Grade calendário 7 colunas ───────────────────────────
-  html += `<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:8px">`;
+  html += `<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:8px;width:100%;max-width:100%">`;
 
   // [Port-Calendario] Cabeçalho dos dias — ordem vem da âncora do ciclo (Seg-primeiro vs Ter-primeiro)
   const DIAS_LABEL = getAncoraDoCiclo(planSemSel).ordemDias;
