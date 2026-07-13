@@ -2008,7 +2008,7 @@ input[type=range].pristine::-webkit-slider-thumb{
 
       <!-- [CF-11] Versão do app -->
       <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:18px;padding-top:12px;border-top:1px solid var(--b1)">
-        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda + overflow mobile</strong> · 09/07/2026
+        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda + overflow + MD tabela/semanas</strong> · 13/07/2026
       </div>
     </div>
 
@@ -7473,23 +7473,32 @@ function calcPrevisao() {
 // Tabela mestra de paces por marco (em segundos/km para cálculo).
 // Fonte: Modelagem Preditiva Sub-3 v1.0 (13/05/2026), pág. 6.
 // Cada marco tem semana inicial estimada do macrociclo (S1 = abril/2026).
+// [MD-FIX 13/07/2026] Duas correções:
+//  (a) Coluna Z1 Regenerativo ADICIONADA — existia no PDF (pág.6) e faltava aqui,
+//      o que deslocava os rótulos: a coluna "Z1" exibia o Z2 baixa e a "Z2 baixa"
+//      exibia o Z2 alta. Os VALORES sempre estiveram corretos; o erro era de rótulo.
+//  (b) Campo `sem` re-derivado do calendário real (S1 = seg 30/03/2026), pela regra
+//      "semana que contém o dia 15 do mês do marco". A regra reproduz exatamente
+//      S7 (Mai/26) e S16 (Jul/26 — confirmado no PDF: "Jul/2026 fim S16"), o que a
+//      valida; os marcos tardios haviam derivado até ~5 semanas.
+//  PROVA (Jul/27) = S68 (semana de 12/07/2027) — ESTIMATIVA, data ainda não confirmada.
 const MD_TABELA_MESTRA = [
   { id: 'hoje_s7',     nome: 'Hoje (S7)',           sem: 7,
-    pace_prova: 374, z2_baixa: 468, z2_alta: 431, z3: 386, z4a: 359, z4b: 352, z5: 326 },
+    pace_prova: 374, z1: 532, z2_baixa: 468, z2_alta: 431, z3: 386, z4a: 359, z4b: 352, z5: 326 },
   { id: 'fim_fase1',   nome: 'Fim Fase 1 (Jul/26)', sem: 16,
-    pace_prova: 343, z2_baixa: 429, z2_alta: 394, z3: 353, z4a: 329, z4b: 322, z5: 298 },
-  { id: 'meio_fase2',  nome: 'Meio Fase 2 (Set/26)', sem: 24,
-    pace_prova: 312, z2_baixa: 390, z2_alta: 359, z3: 321, z4a: 299, z4b: 293, z5: 271 },
-  { id: 'fim_fase2',   nome: 'Fim Fase 2 (Nov/26)', sem: 32,
-    pace_prova: 295, z2_baixa: 368, z2_alta: 339, z3: 303, z4a: 283, z4b: 277, z5: 256 },
-  { id: 'meio_fase3',  nome: 'Meio Fase 3 (Fev/27)', sem: 44,
-    pace_prova: 271, z2_baixa: 339, z2_alta: 312, z3: 279, z4a: 260, z4b: 255, z5: 236 },
-  { id: 'fim_fase3',   nome: 'Fim Fase 3 (Mai/27)', sem: 56,
-    pace_prova: 256, z2_baixa: 320, z2_alta: 294, z3: 263, z4a: 245, z4b: 240, z5: 222 },
-  { id: 'polimento',   nome: 'Polimento (Jun/27)',  sem: 62,
-    pace_prova: 258, z2_baixa: 323, z2_alta: 297, z3: 266, z4a: 248, z4b: 242, z5: 224 },
-  { id: 'prova',       nome: 'PROVA (Jul/27)',       sem: 64,
-    pace_prova: 255, z2_baixa: null, z2_alta: null, z3: null, z4a: null, z4b: 240, z5: null }
+    pace_prova: 343, z1: 487, z2_baixa: 429, z2_alta: 394, z3: 353, z4a: 329, z4b: 322, z5: 298 },
+  { id: 'meio_fase2',  nome: 'Meio Fase 2 (Set/26)', sem: 25,
+    pace_prova: 312, z1: 443, z2_baixa: 390, z2_alta: 359, z3: 321, z4a: 299, z4b: 293, z5: 271 },
+  { id: 'fim_fase2',   nome: 'Fim Fase 2 (Nov/26)', sem: 33,
+    pace_prova: 295, z1: 419, z2_baixa: 368, z2_alta: 339, z3: 303, z4a: 283, z4b: 277, z5: 256 },
+  { id: 'meio_fase3',  nome: 'Meio Fase 3 (Fev/27)', sem: 47,
+    pace_prova: 271, z1: 386, z2_baixa: 339, z2_alta: 312, z3: 279, z4a: 260, z4b: 255, z5: 236 },
+  { id: 'fim_fase3',   nome: 'Fim Fase 3 (Mai/27)', sem: 59,
+    pace_prova: 256, z1: 363, z2_baixa: 320, z2_alta: 294, z3: 263, z4a: 245, z4b: 240, z5: 222 },
+  { id: 'polimento',   nome: 'Polimento (Jun/27)',  sem: 64,
+    pace_prova: 258, z1: 366, z2_baixa: 323, z2_alta: 297, z3: 266, z4a: 248, z4b: 242, z5: 224 },
+  { id: 'prova',       nome: 'PROVA (Jul/27)',       sem: 68,
+    pace_prova: 255, z1: null, z2_baixa: null, z2_alta: null, z3: null, z4a: null, z4b: 240, z5: null }
 ];
 
 // 5 marcadores críticos quantificados (pág. 9 do documento)
@@ -7497,16 +7506,16 @@ const MD_MARCADORES_CRITICOS = [
   { sem: 16, data: 'Jul/2026', titulo: 'Pace Z2 baixa (130-138 bpm)',
     criterio_sub3: '≤ 7:10/km', criterio_ajustar: '≥ 7:30/km',
     metrica: 'z2_baixa', alvo_sub3_seg: 430, limite_ajuste_seg: 450 },
-  { sem: 24, data: 'Set/2026', titulo: 'Pace Z2 alta no longão (16km)',
+  { sem: 25, data: 'Set/2026', titulo: 'Pace Z2 alta no longão (16km)',
     criterio_sub3: '≤ 6:00/km', criterio_ajustar: '≥ 6:20/km',
     metrica: 'z2_alta', alvo_sub3_seg: 360, limite_ajuste_seg: 380 },
-  { sem: 32, data: 'Nov/2026', titulo: 'Tempo Run 8km (Z4a)',
+  { sem: 33, data: 'Nov/2026', titulo: 'Tempo Run 8km (Z4a)',
     criterio_sub3: '≤ 4:45/km', criterio_ajustar: '≥ 5:00/km',
     metrica: 'z4a', alvo_sub3_seg: 285, limite_ajuste_seg: 300 },
-  { sem: 44, data: 'Fev/2027', titulo: 'Meia maratona oficial',
+  { sem: 47, data: 'Fev/2027', titulo: 'Meia maratona oficial',
     criterio_sub3: '≤ 1:28 (4:10/km)', criterio_ajustar: '≥ 1:32',
     metrica: 'meia', alvo_sub3_seg: 250, limite_ajuste_seg: 262 },
-  { sem: 52, data: 'Abr/2027', titulo: 'Longão 30km — últimos 12 km',
+  { sem: 55, data: 'Abr/2027', titulo: 'Longão 30km — últimos 12 km',
     criterio_sub3: '≤ 4:15/km', criterio_ajustar: '≥ 4:25/km',
     metrica: 'pace_prova', alvo_sub3_seg: 255, limite_ajuste_seg: 265 }
 ];
@@ -7745,12 +7754,13 @@ function renderDiagnosticoModeloDetalhe() {
   // ── Tabela mestra completa ──
   const linhas = MD_TABELA_MESTRA.map(m => {
     const ehAtual = m === mdProximoMarco(semAtual);
-    const ehPassado = m.sem <= semAtual;
+    const ehPassado = m.sem < semAtual; // [MD-FIX] era <=, o que marcava o marco como passado já no 1º dia da sua semana
     const cor = ehAtual ? 'var(--accent)' : ehPassado ? 'var(--muted)' : 'var(--text)';
     const peso = ehAtual ? '700' : '500';
     return `<tr style="color:${cor};font-weight:${peso}">
       <td style="padding:6px 8px;border-bottom:1px solid var(--b1)">${m.nome}${ehAtual ? ' ◄' : ''}</td>
       <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.pace_prova)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z1)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z2_baixa)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z2_alta)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid var(--b1);text-align:center;font-family:'JetBrains Mono',monospace">${mdFmtPace(m.z3)}</td>
@@ -7762,12 +7772,18 @@ function renderDiagnosticoModeloDetalhe() {
 
   // ── Roadmap dos marcadores críticos ──
   const linhasMarcadores = MD_MARCADORES_CRITICOS.map(m => {
+    // [MD-FIX] 3 estados: futuro / esta semana / passado. Antes, o marco virava
+    // "passou" logo no 1º dia da sua própria semana (ex.: S16 em 13/07, sendo que
+    // o checkpoint só vence no fim da semana — teste LTHR #2 em 18/07).
     const ehFuturo = m.sem > semAtual;
+    const ehAgora  = m.sem === semAtual;
     const semsRest = m.sem - semAtual;
-    const cor = ehFuturo ? 'var(--text)' : 'var(--muted)';
+    const cor = (ehFuturo || ehAgora) ? 'var(--text)' : 'var(--muted)';
     const statusTempo = ehFuturo
       ? `<span style="color:var(--accent);font-size:10px">em ${semsRest} sem</span>`
-      : `<span style="color:var(--muted);font-size:10px">passou</span>`;
+      : ehAgora
+        ? `<span style="color:var(--yellow);font-size:10px;font-weight:700">esta semana</span>`
+        : `<span style="color:var(--muted);font-size:10px">passou</span>`;
     return `<tr style="color:${cor}">
       <td style="padding:6px 8px;border-bottom:1px solid var(--b1);font-weight:600">S${m.sem} · ${m.data}</td>
       <td style="padding:6px 8px;border-bottom:1px solid var(--b1)">${m.titulo}</td>
@@ -7791,6 +7807,7 @@ function renderDiagnosticoModeloDetalhe() {
               <th style="padding:6px 8px">Prova</th>
               <th style="padding:6px 8px">Z1 Regen.</th>
               <th style="padding:6px 8px">Z2 baixa</th>
+              <th style="padding:6px 8px">Z2 alta</th>
               <th style="padding:6px 8px">Z3 Mod.</th>
               <th style="padding:6px 8px">Z4a Tempo</th>
               <th style="padding:6px 8px">Z4b LT</th>
