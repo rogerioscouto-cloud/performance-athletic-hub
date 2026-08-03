@@ -2008,7 +2008,7 @@ input[type=range].pristine::-webkit-slider-thumb{
 
       <!-- [CF-11] Versão do app -->
       <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:18px;padding-top:12px;border-top:1px solid var(--b1)">
-        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda + overflow + MD tabela/semanas</strong> · 13/07/2026
+        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda + overflow + MD + sync tênis</strong> · 15/07/2026
       </div>
     </div>
 
@@ -7095,7 +7095,7 @@ function salvarTenis() {
   const lst = getTenis();
   const idx = lst.findIndex(t => t.id === id);
   if (idx >= 0) lst[idx] = reg; else lst.push(reg);
-  localStorage.setItem(LS_TENIS, JSON.stringify(lst));
+  lsSave(LS_TENIS, lst); // [FIX-sync-tenis] era localStorage.setItem cru → não atualizava _updatedAt nem enviava à nuvem, por isso o tênis não aparecia em outros dispositivos
   limparFormTenis();
   renderTenisTab();
   popularSelectTenis();
@@ -7144,7 +7144,7 @@ function aposentarTenis(id) {
   if (!confirm('Marcar este tênis como aposentado?')) return;
   const lst = getTenis();
   const idx = lst.findIndex(t => t.id === id);
-  if (idx >= 0) { lst[idx].ativo = false; localStorage.setItem(LS_TENIS, JSON.stringify(lst)); }
+  if (idx >= 0) { lst[idx].ativo = false; lsSave(LS_TENIS, lst); } // [FIX-sync-tenis]
   renderTenisTab();
   toast('Tênis aposentado.');
 }
@@ -9347,7 +9347,7 @@ function confirmarImportacao(backupRaw) {
   if (d.prontidao) lsSave(LS.PRONT,   d.prontidao);
   if (d.forca)     lsSave(LS.FORCA,   d.forca);
   if (d.corpo)     lsSave(LS.CORPO,   d.corpo);
-  if (d.tenis)     localStorage.setItem(LS_TENIS, JSON.stringify(d.tenis));
+  if (d.tenis)     lsSave(LS_TENIS, d.tenis); // [FIX-sync-tenis] era setItem cru
   if (d.plano)     lsSave(LS.PLANO,   d.plano);
   if (d.cfg)       lsSave(LS.CFG,     d.cfg);
   if (d.ignorados) { _ignorados = new Set(d.ignorados); lsSave(LS_IGN, [..._ignorados]); }
