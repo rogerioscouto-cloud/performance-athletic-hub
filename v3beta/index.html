@@ -2008,7 +2008,7 @@ input[type=range].pristine::-webkit-slider-thumb{
 
       <!-- [CF-11] Versão do app -->
       <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:18px;padding-top:12px;border-top:1px solid var(--b1)">
-        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda + overflow + MD + sync tênis + fix previsão</strong> · 03/09/2026
+        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda + overflow + MD + sync tênis + fix previsão + import atualiza gráfico</strong> · 25/09/2026
       </div>
     </div>
 
@@ -9394,7 +9394,23 @@ function confirmarImportacao(backupRaw) {
   document.getElementById('bk-file-input').value = '';
   carregarCfg();
   atualizarContagemBackup();
-  renderOverview();
+  // [FIX-import-refresh] Antes o import gravava os dados mas só re-renderizava a
+  // Visão Geral — a Previsão e o gráfico de Evolução seguiam mostrando os
+  // snapshots antigos (o backup não carrega prev_hist), exigindo recarregar a
+  // página à mão. Agora regeneramos os snapshots a partir do log importado e
+  // re-renderizamos todas as abas, para o import refletir na hora.
+  try { popularSelectsSemana(); } catch(e) { console.warn('[FIX-import-refresh selects]', e); }
+  try { popularSelectTenis(); } catch(e) {}
+  try { if (typeof inicializarHistoricoPrevisao === 'function') inicializarHistoricoPrevisao(); } catch(e) { console.warn('[FIX-import-refresh hist]', e); }
+  try { if (typeof calcPrevisao === 'function') calcPrevisao(); } catch(e) {}
+  try { if (typeof renderGraficoPrevisaoHist === 'function') renderGraficoPrevisaoHist(); } catch(e) {}
+  try { if (typeof renderLogTab === 'function') renderLogTab(); } catch(e) {}
+  try { if (typeof renderProntidao === 'function') renderProntidao(); } catch(e) {}
+  try { if (typeof renderForcaTab === 'function') renderForcaTab(); } catch(e) {}
+  try { if (typeof renderTenisTab === 'function') renderTenisTab(); } catch(e) {}
+  try { if (typeof renderPlanoTab === 'function') renderPlanoTab(); } catch(e) {}
+  try { renderOverview(); } catch(e) {}
+  try { if (typeof renderTop10 === 'function') renderTop10(); } catch(e) {}
   toast(`✅ Backup importado! ${(d.log||[]).length} treinos restaurados.`);
 }
 
