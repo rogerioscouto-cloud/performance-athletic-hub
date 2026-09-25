@@ -2008,7 +2008,7 @@ input[type=range].pristine::-webkit-slider-thumb{
 
       <!-- [CF-11] Versão do app -->
       <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:18px;padding-top:12px;border-top:1px solid var(--b1)">
-        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda + overflow + MD + sync tênis</strong> · 15/07/2026
+        Painel PRO++ · build <strong style="color:var(--muted)">Lote 8 · fix S-segunda + overflow + MD + sync tênis + fix previsão</strong> · 03/09/2026
       </div>
     </div>
 
@@ -8093,6 +8093,41 @@ function inicializarHistoricoPrevisao() {
     backfillSnapshots();
   }
   triggerSnapshotSemanal();
+  regenerarSnapshotsDesatualizados(); // [FIX-prevhist] cura snapshots congelados
+}
+
+// [FIX-prevhist] Auto-cura de snapshots "congelados": recalcula, a partir do
+// dado ATUAL (log/prontidão já sincronizados), os snapshots de semanas JÁ
+// FECHADAS que não sejam manuais, e os atualiza se o valor mudou. Isso conserta
+// marcadores gerados quando o dado ainda estava incompleto (ex.: S25 errada no
+// computador). Preserva snapshots manuais (📸). Grava só se algo mudou — e, como
+// o PREV_HIST não sincroniza mais, essa gravação é sempre local (não sobrescreve
+// outro aparelho).
+function regenerarSnapshotsDesatualizados() {
+  try {
+    const semAtual = dataToPlanSemana(dataHoje());
+    if (!semAtual) return 0;
+    const hist = getPrevHist();
+    let mudou = 0;
+    for (let i = 0; i < hist.length; i++) {
+      const s = hist[i];
+      if (s.semana == null || s.semana >= semAtual) continue; // só semanas fechadas
+      if (s.trigger === 'manual') continue;                   // preserva captura manual
+      let dataFim = null;
+      try {
+        const ordem = getAncoraDoCiclo(s.semana).ordemDias;
+        if (ordem && ordem.length) dataFim = gerarDataPlano(s.semana, ordem[ordem.length - 1]);
+      } catch(e) {}
+      if (!dataFim) continue;
+      const novo = gerarSnapshot({ dataLimite: dataFim, semana: s.semana, trigger: s.trigger, reconstruido: s.reconstruido });
+      if (novo && novo.melhor != null &&
+          Math.round(novo.melhor * 100) !== Math.round((s.melhor || 0) * 100)) {
+        hist[i] = novo; mudou++;
+      }
+    }
+    if (mudou > 0) { hist.sort((a,b) => a.semana - b.semana); lsSave(LS.PREV_HIST, hist); }
+    return mudou;
+  } catch(e) { console.warn('[FIX-prevhist]', e); return 0; }
 }
 
 // Render do gráfico de evolução das previsões na aba Evolução.
@@ -10065,7 +10100,11 @@ const LS_TO_FB = {
   'v3beta_historico_planos': 'historico_planos',
   'v3beta_templates_forca':  'templates_forca',
   'v3beta_lthr':             'lthr',
-  'v3beta_prev_hist':        'prev_hist', // [PV-B4] Histórico de previsões
+  // [FIX-prevhist] 'v3beta_prev_hist' REMOVIDO do sync: é cache DERIVADO do
+  // log/prontidão, não dado-fonte. Sincronizar cache derivado fazia o marcador
+  // congelado de um aparelho sobrescrever o do outro (ex.: S25 divergente entre
+  // computador e telefone). Agora cada aparelho recalcula os snapshots localmente
+  // a partir do log/prontidão já sincronizados (ver regenerarSnapshotsDesatualizados).
 };
 
 // [Sub-fase 3.1] Flag que bloqueia sync para nuvem durante boot.
@@ -10216,6 +10255,14 @@ async function carregarDadosNuvem() {
 
   // [Sub-fase 3.1] Liberar lsSave para sync após sync inicial completo
   window._syncCompleto = true;
+
+  // [FIX-prevhist] Com o dado já baixado, recalcula os snapshots de semanas
+  // fechadas (cura marcadores congelados vindos de dado incompleto, ex.: S25) e
+  // re-renderiza o gráfico de Evolução se estiver visível.
+  try {
+    if (typeof regenerarSnapshotsDesatualizados === 'function') regenerarSnapshotsDesatualizados();
+    if (document.getElementById('cPrevHist')) renderGraficoPrevisaoHist();
+  } catch(e) { console.warn('[FIX-prevhist pos-sync]', e); }
 
   if (conflitosCriticos.length > 0) {
     abrirModalConflitoSync(conflitosCriticos);
